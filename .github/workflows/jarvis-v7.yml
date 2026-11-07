@@ -1,0 +1,1228 @@
+name: JARVIS v7 APK derle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Proje dosyalarini hazirla
+        run: |
+          python3 - <<'PY'
+          import glob, io, sys
+          A = "Android proje dosyalarini " + "olustur"
+          Z = "cat > app/src/main/java/com/example/jarvis/Act" + "ions.kt"
+          body = None
+          for p in sorted(glob.glob(".github/workflows/*.y*ml")):
+              lines = io.open(p, encoding="utf-8").read().split("\n")
+              text = "\n".join(lines)
+              if A not in text or Z not in text:
+                  continue
+              start = None
+              for i, l in enumerate(lines):
+                  if A in l and l.strip().startswith("- name"):
+                      start = i
+                      break
+              if start is None:
+                  continue
+              j = start + 1
+              while j < len(lines) and not lines[j].strip().startswith("run:"):
+                  j += 1
+              j += 1
+              out = []
+              while j < len(lines):
+                  l = lines[j]
+                  if l.strip() and (len(l) - len(l.lstrip(" "))) < 10:
+                      break
+                  out.append(l[10:] if l.strip() else "")
+                  j += 1
+              body = "\n".join(out)
+              break
+          if body is None:
+              sys.exit("HATA: eski JARVIS workflow dosyasi (.github/workflows) bulunamadi. Onu silme ya da degistirme.")
+          io.open("/tmp/step1.sh", "w", encoding="utf-8").write(body + "\n")
+          print("Eski workflowdan proje dosyalari alindi.")
+          PY
+          bash /tmp/step1.sh
+
+      - name: Jarvis v6 yamalari
+        run: |
+          #!/usr/bin/env bash
+          # JARVIS v6 yamasi: ilk adimda uretilen dosyalarin ustune calisir.
+          set -e
+          B=app/src/main/java/com/example/jarvis
+
+          # ---------------------------------------------------------------
+          # 1) Sabit imza anahtari (bir kere uretilir, repoya kaydedilir)
+          # ---------------------------------------------------------------
+          if [ ! -f jarvis.jks ]; then
+            keytool -genkeypair -keystore jarvis.jks -alias jarvis -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass jarvis123 -keypass jarvis123 -dname "CN=Jarvis, O=Jarvis, C=TR"
+            git config user.name "jarvis-bot"
+            git config user.email "jarvis-bot@users.noreply.github.com"
+            git add jarvis.jks
+            git commit -m "imza anahtari eklendi"
+            git push origin HEAD:"${GITHUB_REF_NAME}" || echo "UYARI: anahtar repoya yazilamadi. workflow basinda permissions: contents: write olmali."
+          fi
+
+          # ---------------------------------------------------------------
+          # 2) Yeni dosyalar
+          # ---------------------------------------------------------------
+          cat > $B/Extra.kt <<'KT'
+          package com.example.jarvis
+
+          import android.Manifest
+          import android.app.Notification
+          import android.app.RemoteInput
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.media.AudioAttributes
+          import android.media.AudioManager
+          import android.media.MediaPlayer
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.provider.ContactsContract
+          import android.provider.Settings
+          import android.view.KeyEvent
+          import android.widget.Toast
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.material3.FilterChip
+          import androidx.compose.material3.HorizontalDivider
+          import androidx.compose.material3.OutlinedTextField
+          import androidx.compose.material3.Switch
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.input.PasswordVisualTransformation
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.core.content.ContextCompat
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.util.concurrent.Executors
+
+          /** Gerçekçi ses: OpenAI konuşma modeli. Anahtar yoksa ya da hata olursa telefonun sesi kullanılır. */
+          object Cloud {
+              var lastError by mutableStateOf("")
+              private var mp: MediaPlayer? = null
+              @Volatile private var gen = 0
+              private val main = Handler(Looper.getMainLooper())
+              private val io = Executors.newSingleThreadExecutor()
+
+              fun stop() {
+                  gen++
+                  val m = mp
+                  mp = null
+                  try {
+                      m?.stop()
+                  } catch (_: Exception) {
+                  }
+                  try {
+                      m?.release()
+                  } catch (_: Exception) {
+                  }
+                  Bus.level = 0f
+              }
+
+              fun tryPlay(ctx: Context, text: String, finished: (() -> Unit)?, fallback: () -> Unit): Boolean {
+                  val p = ctx.getSharedPreferences(PREF, 0)
+                  val key = (p.getString("openai_key", "") ?: "").trim()
+                  if (key.isEmpty() || !p.getBoolean("cloud_voice", true)) return false
+                  val clean = text.replace(Regex("[*#_`~>]"), "").trim().take(1500)
+                  if (clean.isEmpty()) {
+                      finished?.let { main.post(it) }
+                      return true
+                  }
+                  val voice = p.getString("openai_voice", "coral") ?: "coral"
+                  val app = ctx.applicationContext
+                  stop()
+                  val my = gen
+                  lastError = ""
+                  Bus.state = JState.SPEAKING
+                  io.execute {
+                      val f = audioFile(app, key, voice, clean)
+                      main.post {
+                          if (my != gen) return@post
+                          if (f == null) fallback() else play(f, finished)
+                      }
+                  }
+                  return true
+              }
+
+              private fun audioFile(ctx: Context, key: String, voice: String, text: String): File? {
+                  val dir = File(ctx.cacheDir, "tts")
+                  dir.mkdirs()
+                  val f = File(dir, (voice + "|" + text).hashCode().toString() + ".mp3")
+                  if (f.exists() && f.length() > 500) {
+                      f.setLastModified(System.currentTimeMillis())
+                      return f
+                  }
+                  var c: HttpURLConnection? = null
+                  try {
+                      val body = JSONObject()
+                          .put("model", "gpt-4o-mini-tts")
+                          .put("voice", voice)
+                          .put("input", text)
+                          .put("response_format", "mp3")
+                          .put(
+                              "instructions",
+                              "Türkçe konuş. Sıcak, samimi, akıcı ve doğal bir genç kadın gibi konuş. Robot gibi değil, gerçek bir insan gibi tonlama yap."
+                          )
+                      c = URL("https://api.openai.com/v1/audio/speech").openConnection() as HttpURLConnection
+                      c.requestMethod = "POST"
+                      c.connectTimeout = 10000
+                      c.readTimeout = 30000
+                      c.doOutput = true
+                      c.setRequestProperty("Authorization", "Bearer $key")
+                      c.setRequestProperty("Content-Type", "application/json")
+                      c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                      val code = c.responseCode
+                      if (code !in 200..299) {
+                          lastError = when (code) {
+                              401 -> "OpenAI anahtarı geçersiz."
+                              429 -> "OpenAI kredisi ya da limiti yetersiz."
+                              else -> "OpenAI hatası, HTTP $code."
+                          }
+                          return null
+                      }
+                      val tmp = File(dir, "part_" + System.nanoTime())
+                      c.inputStream.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+                      if (!tmp.renameTo(f)) {
+                          tmp.delete()
+                          return null
+                      }
+                      dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(60)?.forEach { it.delete() }
+                      return f
+                  } catch (_: Exception) {
+                      lastError = "Bağlantı kurulamadı."
+                      return null
+                  } finally {
+                      c?.disconnect()
+                  }
+              }
+
+              private fun play(f: File, finished: (() -> Unit)?) {
+                  try {
+                      val m = MediaPlayer()
+                      mp = m
+                      m.setAudioAttributes(
+                          AudioAttributes.Builder()
+                              .setUsage(AudioAttributes.USAGE_MEDIA)
+                              .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                              .build()
+                      )
+                      m.setDataSource(f.absolutePath)
+                      m.setOnPreparedListener {
+                          Bus.state = JState.SPEAKING
+                          Bus.level = 0.7f
+                          it.start()
+                      }
+                      m.setOnCompletionListener { mm ->
+                          Bus.level = 0f
+                          if (mp === mm) mp = null
+                          try {
+                              mm.release()
+                          } catch (_: Exception) {
+                          }
+                          finished?.invoke()
+                      }
+                      m.setOnErrorListener { mm, _, _ ->
+                          Bus.level = 0f
+                          if (mp === mm) mp = null
+                          try {
+                              mm.release()
+                          } catch (_: Exception) {
+                          }
+                          finished?.invoke()
+                          true
+                      }
+                      m.prepareAsync()
+                  } catch (_: Exception) {
+                      finished?.invoke()
+                  }
+              }
+          }
+
+          /** Telefondaki uygulamaları tarar; "spotify aç" demek için elle kayıt gerekmez. */
+          object AppIndex {
+              private var cache: List<Triple<String, String, String>>? = null // etiket, normal, paket
+              private var at = 0L
+
+              fun apps(ctx: Context): List<Triple<String, String, String>> {
+                  val c = cache
+                  if (c != null && SystemClock.elapsedRealtime() - at < 300_000L) return c
+                  val pm = ctx.packageManager
+                  val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                  val list: List<Triple<String, String, String>> = try {
+                      pm.queryIntentActivities(q, 0).mapNotNull {
+                          val pkg = it.activityInfo.packageName
+                          if (pkg == ctx.packageName) {
+                              null
+                          } else {
+                              val label = it.loadLabel(pm).toString()
+                              Triple(label, normalize(label), pkg)
+                          }
+                      }.filter { it.second.length >= 2 }.distinctBy { it.third }
+                  } catch (_: Exception) {
+                      emptyList()
+                  }
+                  cache = list
+                  at = SystemClock.elapsedRealtime()
+                  return list
+              }
+
+              fun find(ctx: Context, n: String): Triple<String, String, String>? {
+                  val padded = " $n "
+                  val all = apps(ctx)
+                  val exact = all.filter { padded.contains(" " + it.second + " ") }.maxByOrNull { it.second.length }
+                  if (exact != null) return exact
+                  // Konuşma tanıma küçük hata yaptıysa (spotifay gibi) bir harf farkını kabul et.
+                  val toks = n.split(" ").filter { it.length >= 5 }
+                  var best: Triple<String, String, String>? = null
+                  var bd = 2
+                  for (a in all) {
+                      if (a.second.contains(" ") || a.second.length < 5) continue
+                      for (t in toks) {
+                          val d = dist(t, a.second)
+                          if (d < bd) {
+                              bd = d
+                              best = a
+                          }
+                      }
+                  }
+                  return best
+              }
+
+              private fun dist(a: String, b: String): Int {
+                  val d = IntArray(b.length + 1) { it }
+                  for (i in 1..a.length) {
+                      var prev = d[0]
+                      d[0] = i
+                      for (j in 1..b.length) {
+                          val tmp = d[j]
+                          d[j] = minOf(d[j] + 1, d[j - 1] + 1, prev + if (a[i - 1] == b[j - 1]) 0 else 1)
+                          prev = tmp
+                      }
+                  }
+                  return d[b.length]
+              }
+          }
+
+          object Extra {
+              private val OPEN = setOf("ac", "acar", "acsana", "acin", "git", "baslat", "calistir", "aciver", "acabilir")
+              private val YES = setOf("evet", "evet gonder", "gonder", "onayla", "olur", "yolla", "evet yolla", "evet at", "he")
+              private val NO = setOf("hayir", "iptal", "vazgec", "gonderme", "olmaz", "hayir gonderme", "yok")
+              private val WSTOP = setOf(
+                  "hava", "havasi", "durumu", "durumunu", "nasil", "kac", "derece", "bugun", "yarin", "jarvis",
+                  "soyle", "bana", "ne", "var", "mi", "mu", "da", "de", "icin", "sicaklik", "yagmur", "yagacak",
+                  "olacak", "hey", "bakar", "misin", "sicak", "soguk"
+              )
+
+              // WhatsApp cevap takibi (JarvisNotif doldurur)
+              @Volatile var lastTitle = ""
+              @Volatile var lastAction: Notification.Action? = null
+              @Volatile var expectName = ""
+              @Volatile var expectUntil = 0L
+              private var pendText: String? = null
+
+              private var contactCache: List<Contact>? = null
+
+              fun refreshContacts() {
+                  contactCache = null
+              }
+
+              fun phoneContacts(ctx: Context): List<Contact> {
+                  contactCache?.let { return it }
+                  if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                      return emptyList()
+                  }
+                  val out = ArrayList<Contact>()
+                  try {
+                      ctx.contentResolver.query(
+                          ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                          arrayOf(
+                              ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                              ContactsContract.CommonDataKinds.Phone.NUMBER
+                          ),
+                          null, null, null
+                      )?.use { c ->
+                          while (c.moveToNext()) {
+                              val nm = c.getString(0) ?: continue
+                              val no = c.getString(1) ?: continue
+                              out.add(Contact(nm, no))
+                          }
+                      }
+                  } catch (_: Exception) {
+                  }
+                  contactCache = out
+                  return out
+              }
+
+              /** Elle eklenenler önce gelir, sonra telefon rehberi. */
+              fun allContacts(ctx: Context): List<Contact> =
+                  (loadContacts(ctx) + phoneContacts(ctx)).distinctBy { normalize(it.name) }
+
+              fun expect(name: String) {
+                  expectName = normalize(name)
+                  expectUntil = SystemClock.elapsedRealtime() + 15 * 60_000L
+              }
+
+              fun matches(t: String): Boolean {
+                  if (expectName.isBlank() || t.isBlank()) return false
+                  val f = expectName.substringBefore(" ")
+                  val g = t.substringBefore(" ")
+                  return t.contains(expectName) || expectName.contains(t) ||
+                      (f.length >= 3 && g.length >= 3 && (f.startsWith(g) || g.startsWith(f)))
+              }
+
+              suspend fun handle(ctx: Context, n: String, raw: String): String? {
+                  confirm(ctx, n)?.let { return it }
+                  return reply(raw) ?: weather(ctx, n, raw) ?: notes(ctx, n, raw) ?: media(ctx, n) ?: ringer(ctx, n)
+              }
+
+              // ---------- uygulama açma (telefondaki uygulamaları tarar) ----------
+
+              fun openApp(ctx: Context, n: String): String? {
+                  val toks = n.split(" ")
+                  if (toks.size > 6 || toks.none { it in OPEN }) return null
+                  val a = AppIndex.find(ctx, n) ?: return null
+                  val i = ctx.packageManager.getLaunchIntentForPackage(a.third) ?: return null
+                  return try {
+                      ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      a.first + " açılıyor."
+                  } catch (_: Exception) {
+                      a.first + " açılamadı. Araçlar bölümünden ekran üstü gösterme iznini ver."
+                  }
+              }
+
+              // ---------- WhatsApp'a arka planda cevap ----------
+
+              private fun reply(raw: String): String? {
+                  if (lastAction == null) return null
+                  val re = Regex(
+                      "(?iu)^\\s*(?:(?:hey\\s+)?jarvis[,.!]*\\s*)?" +
+                          "(?:ona\\s+(?:yaz|söyle|soyle)|cevap\\s+(?:yaz|ver|gönder|gonder)|cevapla|yanıtla|yanitla)[\\s:,\\-]*(.*)$"
+                  )
+                  val m = re.find(raw.trim()) ?: return null
+                  val msg = m.groupValues[1]
+                      .replace(Regex("(?iu)^(şunu|sunu)\\s*(yaz|söyle|soyle)?[\\s:,]*"), "")
+                      .trim(' ', '.', ',', ':', '"')
+                  if (msg.isBlank()) return "Ne yazayım?"
+                  pendText = msg
+                  return lastTitle + " kişisine \"" + msg + "\" cevabını göndereyim mi? Evet ya da hayır de."
+              }
+
+              private fun confirm(ctx: Context, n: String): String? {
+                  val t = pendText ?: return null
+                  pendText = null
+                  if (n in NO) return "Tamam, göndermedim."
+                  if (n in YES) {
+                      return if (sendReply(ctx, t)) "$lastTitle kişisine cevap gönderdim."
+                      else "Cevap gönderilemedi. Bildirim silinmiş olabilir."
+                  }
+                  return null
+              }
+
+              private fun sendReply(ctx: Context, text: String): Boolean {
+                  val a = lastAction ?: return false
+                  val ris = a.remoteInputs ?: return false
+                  if (ris.isEmpty()) return false
+                  return try {
+                      val i = Intent()
+                      val b = Bundle()
+                      b.putCharSequence(ris[0].resultKey, text)
+                      RemoteInput.addResultsToIntent(ris, i, b)
+                      a.actionIntent.send(ctx, 0, i)
+                      true
+                  } catch (_: Exception) {
+                      false
+                  }
+              }
+
+              // ---------- hava durumu (anahtar gerektirmez) ----------
+
+              private fun http(u: String): String {
+                  val c = URL(u).openConnection() as HttpURLConnection
+                  c.connectTimeout = 10000
+                  c.readTimeout = 15000
+                  try {
+                      return c.inputStream.bufferedReader().use { it.readText() }
+                  } finally {
+                      c.disconnect()
+                  }
+              }
+
+              private fun wmo(c: Int): String = when (c) {
+                  0 -> "Hava açık"
+                  1, 2 -> "Parçalı bulutlu"
+                  3 -> "Bulutlu"
+                  45, 48 -> "Sisli"
+                  in 51..57 -> "Çiseleyen yağmur"
+                  in 61..67 -> "Yağmurlu"
+                  in 71..77 -> "Karlı"
+                  in 80..82 -> "Sağanak yağışlı"
+                  85, 86 -> "Kar sağanağı"
+                  in 95..99 -> "Gök gürültülü fırtına"
+                  else -> "Hava değişken"
+              }
+
+              private suspend fun weather(ctx: Context, n: String, raw: String): String? {
+                  val hit = n.contains("hava durum") || n.contains("sicaklik") ||
+                      (n.contains("hava") && (n.contains("nasil") || n.contains("derece") || n.contains("yagmur") ||
+                          n.contains("sicak") || n.contains("soguk")))
+                  if (!hit) return null
+                  var city = raw.split(Regex("\\s+"))
+                      .map { it.substringBefore('\'').substringBefore('’').trim('.', ',', '?', '!') }
+                      .firstOrNull { normalize(it).isNotBlank() && normalize(it) !in WSTOP } ?: ""
+                  if (city.isBlank()) city = ctx.getSharedPreferences(PREF, 0).getString("city", "") ?: ""
+                  if (city.isBlank()) return "Hangi şehrin havasını söyleyeyim? Şehir adını söyle ya da Ayarlar'dan varsayılan şehri gir."
+                  val tomorrow = n.contains("yarin")
+                  return try {
+                      withContext(Dispatchers.IO) {
+                          val g = JSONObject(http("https://geocoding-api.open-meteo.com/v1/search?count=1&language=tr&name=" + Uri.encode(city)))
+                          val rs = g.optJSONArray("results") ?: return@withContext "$city diye bir yer bulamadım."
+                          val r = rs.getJSONObject(0)
+                          val url = "https://api.open-meteo.com/v1/forecast?latitude=" + r.getDouble("latitude") +
+                              "&longitude=" + r.getDouble("longitude") +
+                              "&current=temperature_2m,apparent_temperature,weather_code" +
+                              "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+                              "&timezone=auto&forecast_days=2"
+                          val w = JSONObject(http(url))
+                          val d = w.getJSONObject("daily")
+                          val day = if (tomorrow) 1 else 0
+                          val name = r.optString("name", city)
+                          val hi = Math.round(d.getJSONArray("temperature_2m_max").getDouble(day))
+                          val lo = Math.round(d.getJSONArray("temperature_2m_min").getDouble(day))
+                          val rain = d.getJSONArray("precipitation_probability_max").optInt(day, 0)
+                          if (!tomorrow) {
+                              val cur = w.getJSONObject("current")
+                              val t = Math.round(cur.getDouble("temperature_2m"))
+                              val f = Math.round(cur.getDouble("apparent_temperature"))
+                              val ds = wmo(cur.getInt("weather_code")).lowercase(TR)
+                              "$name için şu an $t derece, hissedilen $f. Hava $ds. Bugün en düşük $lo, en yüksek $hi derece, yağış ihtimali yüzde $rain."
+                          } else {
+                              val ds = wmo(d.getJSONArray("weather_code").getInt(1)).lowercase(TR)
+                              "Yarın $name için hava $ds. En düşük $lo, en yüksek $hi derece, yağış ihtimali yüzde $rain."
+                          }
+                      }
+                  } catch (_: Exception) {
+                      "Hava durumuna ulaşamadım. İnternetini kontrol et."
+                  }
+              }
+
+              // ---------- notlar ----------
+
+              private fun notes(ctx: Context, n: String, raw: String): String? {
+                  val p = ctx.getSharedPreferences(PREF, 0)
+                  val list: MutableList<String> = try {
+                      val a = JSONArray(p.getString("notes", "[]") ?: "[]")
+                      MutableList(a.length()) { a.getString(it) }
+                  } catch (_: Exception) {
+                      mutableListOf()
+                  }
+
+                  if (n.contains("notlar") && (n.contains("sil") || n.contains("temizle"))) {
+                      p.edit().putString("notes", "[]").apply()
+                      return "Notların silindi."
+                  }
+                  if (n.contains("notlar") && (n.contains("oku") || n.contains("neler") || n.contains("goster") || n.contains("soyle"))) {
+                      if (list.isEmpty()) return "Kayıtlı notun yok."
+                      return "${list.size} notun var. " + list.mapIndexed { i, s -> "${i + 1}. $s." }.joinToString(" ")
+                  }
+                  if (!n.contains("not al")) return null
+
+                  val after = Regex("(?iu)\\bnot\\s+al\\w*[\\s:,\\-]+(.+)$").find(raw)?.groupValues?.get(1)
+                  val before = Regex("(?iu)^(?:.*?jarvis[,.!]*\\s*)?(.+?)\\s+not\\s+al\\w*[.!]?$").find(raw.trim())?.groupValues?.get(1)
+                  val txt = (after ?: before)
+                      ?.replace(Regex("(?iu)^(şunu|sunu|bunu)\\s+"), "")
+                      ?.trim(' ', '.', ',', ':')
+                  if (txt.isNullOrBlank()) return "Ne not alayım?"
+                  list.add(txt)
+                  p.edit().putString("notes", JSONArray(list).toString()).apply()
+                  return "Not aldım: $txt"
+              }
+
+              // ---------- müzik ve ses modu ----------
+
+              private fun media(ctx: Context, n: String): String? {
+                  if (!(n.contains("muzik") || n.contains("sarki"))) return null
+                  val (code, msg) = when {
+                      n.contains("durdur") || n.contains("duraklat") || n.contains("kapat") ->
+                          KeyEvent.KEYCODE_MEDIA_PAUSE to "Müzik duraklatıldı."
+                      n.contains("sonraki") || n.contains("gec") || n.contains("atla") ->
+                          KeyEvent.KEYCODE_MEDIA_NEXT to "Sonraki şarkı."
+                      n.contains("onceki") || n.contains("geri") ->
+                          KeyEvent.KEYCODE_MEDIA_PREVIOUS to "Önceki şarkı."
+                      n.contains("devam") || n.contains("baslat") || n.contains("cal") ->
+                          KeyEvent.KEYCODE_MEDIA_PLAY to "Müzik devam ediyor."
+                      else -> return null
+                  }
+                  val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                  am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+                  am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                  return msg
+              }
+
+              private fun ringer(ctx: Context, n: String): String? {
+                  val vib = n.contains("sessize al") || (n.contains("titresim") && !n.contains("kapat"))
+                  val loud = n.contains("sesli moda") || n.contains("zili ac")
+                  if (!vib && !loud) return null
+                  return try {
+                      val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                      am.ringerMode = if (vib) AudioManager.RINGER_MODE_VIBRATE else AudioManager.RINGER_MODE_NORMAL
+                      if (vib) "Titreşim moduna aldım." else "Zil sesi açıldı."
+                  } catch (_: Exception) {
+                      "Ses modu değiştirilemedi. Rahatsız etme izni gerekebilir."
+                  }
+              }
+          }
+
+          @Composable
+          fun ExtraSettings(speaker: Speaker) {
+              val ctx = LocalContext.current
+              val prefs = remember { ctx.getSharedPreferences(PREF, 0) }
+              var key by remember { mutableStateOf(prefs.getString("openai_key", "") ?: "") }
+              var voice by remember { mutableStateOf(prefs.getString("openai_voice", "coral") ?: "coral") }
+              var cloud by remember { mutableStateOf(prefs.getBoolean("cloud_voice", true)) }
+              var readAll by remember { mutableStateOf(prefs.getBoolean("read_all", false)) }
+              var city by remember { mutableStateOf(prefs.getString("city", "") ?: "") }
+              val contactPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+                  Extra.refreshContacts()
+                  Toast.makeText(ctx, if (ok) "Rehber izni verildi" else "Rehber izni verilmedi", Toast.LENGTH_SHORT).show()
+              }
+
+              Column(Modifier.fillMaxWidth()) {
+                  HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                  Text("GERÇEKÇİ KIZ SESİ (OPENAI)", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "OpenAI API anahtarını girince Jarvis, ChatGPT'ye yakın doğal bir kız sesiyle konuşur. " +
+                          "Anahtar boşsa ya da internet yoksa telefonun kendi sesi kullanılır.",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  OutlinedTextField(
+                      value = key,
+                      onValueChange = {
+                          key = it
+                          prefs.edit().putString("openai_key", it.trim()).apply()
+                      },
+                      modifier = Modifier.fillMaxWidth(),
+                      label = { Text("OpenAI API Key") }, placeholder = { Text("sk-...") },
+                      visualTransformation = PasswordVisualTransformation(),
+                      singleLine = true, colors = fieldColors()
+                  )
+                  Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                      Text("Gerçekçi sesi kullan", color = WHITE, modifier = Modifier.weight(1f))
+                      Switch(
+                          checked = cloud,
+                          onCheckedChange = {
+                              cloud = it
+                              prefs.edit().putBoolean("cloud_voice", it).apply()
+                          }
+                      )
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      listOf("coral", "marin", "nova", "shimmer").forEach { v ->
+                          FilterChip(
+                              selected = voice == v,
+                              onClick = {
+                                  voice = v
+                                  prefs.edit().putString("openai_voice", v).apply()
+                              },
+                              label = { Text(v) }
+                          )
+                      }
+                  }
+                  CyanButton("GERÇEKÇİ SESİ TEST ET") {
+                      speaker.speak("Merhaba, ben Jarvis. Sesim nasıl, beğendin mi?")
+                  }
+                  if (Cloud.lastError.isNotEmpty()) {
+                      Text("Ses hatası: " + Cloud.lastError + " Telefonun sesi kullanılıyor.", color = Color.Red, fontSize = 12.sp)
+                  }
+
+                  HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                  Text("WHATSAPP GERİ DÖNÜŞLERİ", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "Bildirim erişimini açarsan, mesaj attığın kişi 15 dakika içinde cevap yazınca Jarvis sesli okur. " +
+                          "\"Cevap yaz tamam geliyorum\" dersen cevabı WhatsApp'ı açmadan, arka planda gönderir.",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  CyanButton("BİLDİRİM ERİŞİMİNİ AÇ") {
+                      try {
+                          ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      } catch (_: Exception) {
+                      }
+                  }
+                  Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                      Text("Gelen tüm WhatsApp mesajlarını oku", color = WHITE, modifier = Modifier.weight(1f))
+                      Switch(
+                          checked = readAll,
+                          onCheckedChange = {
+                              readAll = it
+                              prefs.edit().putBoolean("read_all", it).apply()
+                          }
+                      )
+                  }
+                  CyanButton("REHBER İZNİ VER (KİŞİLER TELEFONDAN GELSİN)") {
+                      if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                          Toast.makeText(ctx, "Zaten verilmiş", Toast.LENGTH_SHORT).show()
+                      } else {
+                          contactPerm.launch(Manifest.permission.READ_CONTACTS)
+                      }
+                  }
+
+                  HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                  Text("HAVA DURUMU", color = CYAN, fontWeight = FontWeight.Bold)
+                  OutlinedTextField(
+                      value = city,
+                      onValueChange = {
+                          city = it
+                          prefs.edit().putString("city", it.trim()).apply()
+                      },
+                      modifier = Modifier.fillMaxWidth(),
+                      label = { Text("Varsayılan şehir") },
+                      singleLine = true, colors = fieldColors()
+                  )
+              }
+          }
+          KT
+
+          cat > $B/JarvisNotif.kt <<'KT'
+          package com.example.jarvis
+
+          import android.app.Notification
+          import android.os.SystemClock
+          import android.service.notification.NotificationListenerService
+          import android.service.notification.StatusBarNotification
+
+          /** WhatsApp bildirimlerini izler: cevap gelirse sesli okur, bildirimden arka planda cevap yazmayı sağlar. */
+          class JarvisNotif : NotificationListenerService() {
+              private var speaker: Speaker? = null
+              private var lastKey = ""
+              private var lastAt = 0L
+
+              override fun onListenerConnected() {
+                  speaker = Speaker(this)
+              }
+
+              override fun onListenerDisconnected() {
+                  speaker?.shutdown()
+                  speaker = null
+              }
+
+              override fun onDestroy() {
+                  speaker?.shutdown()
+                  speaker = null
+                  super.onDestroy()
+              }
+
+              override fun onNotificationPosted(sbn: StatusBarNotification?) {
+                  val s = sbn ?: return
+                  if (!s.packageName.startsWith("com.whatsapp")) return
+                  val nt = s.notification ?: return
+                  if ((nt.flags and (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0) return
+                  val ex = nt.extras ?: return
+                  val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: return
+                  val text = ex.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: return
+                  if (title.equals("WhatsApp", true) || text.isBlank()) return
+
+                  val act = nt.actions?.firstOrNull { a -> a.remoteInputs != null && a.remoteInputs.isNotEmpty() }
+                  if (act != null) {
+                      Extra.lastTitle = title
+                      Extra.lastAction = act
+                  }
+
+                  val now = SystemClock.elapsedRealtime()
+                  val key = "$title|$text"
+                  if (key == lastKey && now - lastAt < 8000) return
+                  lastKey = key
+                  lastAt = now
+
+                  val expected = now < Extra.expectUntil && Extra.matches(normalize(title))
+                  val all = getSharedPreferences(PREF, 0).getBoolean("read_all", false)
+                  if (!expected && !all) return
+                  if (expected) Extra.expectUntil = now + 15 * 60_000L
+
+                  val msg = if (expected) "$title cevap verdi: $text" else "$title yazdı: $text"
+                  Bus.messages.add(Chat(msg, false))
+                  val busy = Bus.state == JState.LISTENING || Bus.state == JState.THINKING || Bus.state == JState.SPEAKING
+                  if (!busy) {
+                      speaker?.speak(msg) { Bus.state = if (Bus.serviceRunning) JState.WAKE else JState.IDLE }
+                  }
+              }
+          }
+          KT
+
+          # Yeni logo: neon altıgen içinde J
+          cat > app/src/main/res/drawable/ic_launcher_fg.xml <<'KT'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#2200E5FF"
+                  android:pathData="M54,20 L83.4,37 L83.4,71 L54,88 L24.6,71 L24.6,37 Z"/>
+              <path android:strokeColor="#00E5FF" android:strokeWidth="3" android:strokeLineJoin="round"
+                  android:fillColor="#00000000"
+                  android:pathData="M54,20 L83.4,37 L83.4,71 L54,88 L24.6,71 L24.6,37 Z"/>
+              <path android:strokeColor="#6600E5FF" android:strokeWidth="1.2" android:strokeLineJoin="round"
+                  android:fillColor="#00000000"
+                  android:pathData="M54,28 L76.5,41 L76.5,67 L54,80 L31.5,67 L31.5,41 Z"/>
+              <path android:strokeColor="#FFFFFF" android:strokeWidth="5.5" android:strokeLineCap="round"
+                  android:strokeLineJoin="round" android:fillColor="#00000000"
+                  android:pathData="M46,39 L68,39 M57,39 L57,61 Q57,71 48,71 Q43,71 40,67"/>
+              <path android:fillColor="#00E5FF"
+                  android:pathData="M54,20 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0"/>
+              <path android:fillColor="#00E5FF"
+                  android:pathData="M54,88 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0"/>
+          </vector>
+          KT
+
+          # ---------------------------------------------------------------
+          # 3) Mevcut dosyalara yamalar
+          # ---------------------------------------------------------------
+          python3 - <<'PY'
+          import io
+
+          B = "app/src/main/java/com/example/jarvis/"
+
+          def patch(path, pairs):
+              with io.open(path, encoding="utf-8") as f:
+                  s = f.read()
+              for old, new in pairs:
+                  if s.count(old) != 1:
+                      raise SystemExit("YAMA HATASI (" + path + "): bulunamadi -> " + old[:70])
+                  s = s.replace(old, new)
+              with io.open(path, "w", encoding="utf-8") as f:
+                  f.write(s)
+
+          # ---- gradle: surum + sabit imza ----
+          SIGN = """signingConfigs {
+                  create("jarvis") {
+                      storeFile = rootProject.file("jarvis.jks")
+                      storePassword = "jarvis123"
+                      keyAlias = "jarvis"
+                      keyPassword = "jarvis123"
+                  }
+              }
+              buildTypes {
+                  getByName("debug") {
+                      if (rootProject.file("jarvis.jks").exists()) {
+                          signingConfig = signingConfigs.getByName("jarvis")
+                      }
+                  }
+              }
+
+              """
+          patch("app/build.gradle.kts", [
+              ("versionCode = 5", "versionCode = 6"),
+              ('versionName = "5.0"', 'versionName = "6.0"'),
+              ("kotlinOptions {", SIGN + "kotlinOptions {"),
+          ])
+
+          # ---- manifest: rehber izni + bildirim dinleyici ----
+          NOTIF = """    <service
+                      android:name=".JarvisNotif"
+                      android:label="JARVIS"
+                      android:exported="true"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService"/>
+                      </intent-filter>
+                  </service>
+              """
+          patch("app/src/main/AndroidManifest.xml", [
+              ('<uses-permission android:name="android.permission.WRITE_SETTINGS"/>',
+               '<uses-permission android:name="android.permission.WRITE_SETTINGS"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>'),
+              ("</application>", NOTIF + "</application>"),
+          ])
+
+          # ---- beyin: yeni komut zinciri + tarih bilgisi ----
+          patch(B + "Core.kt", [
+              ("Actions.handle(ctx, n, raw) ?: builtin(ctx, n) ?: local(ctx, n, raw)",
+               "Extra.handle(ctx, n, raw) ?: Actions.handle(ctx, n, raw) ?: builtin(ctx, n) ?: Extra.openApp(ctx, n) ?: local(ctx, n, raw)"),
+              ('"Yapmadığın işlemleri yaptığını söyleme. Genellikle 1-4 cümle yaz."',
+               '"Yapmadığın işlemleri yaptığını söyleme. Genellikle 1-4 cümle yaz. Şu an: " + ' +
+               'SimpleDateFormat("d MMMM yyyy EEEE HH:mm", TR).format(Date()) + ". Güncel bilgin yoksa uydurma."'),
+          ])
+
+          # ---- rehberden kişi bulma + cevap bekleme ----
+          patch(B + "Actions.kt", [
+              ("for (c in loadContacts(ctx)) {", "for (c in Extra.allContacts(ctx)) {"),
+              ("val ok = sendNow(ctx, Pending.number, Pending.text)",
+               "val ok = sendNow(ctx, Pending.number, Pending.text)\n                      Extra.expect(name)"),
+          ])
+
+          # ---- ses: bulut sesi önce denenir, olmazsa telefon sesi ----
+          patch(B + "Voice.kt", [
+              ("fun speak(text: String, finished: (() -> Unit)? = null) {",
+               "fun speak(text: String, finished: (() -> Unit)? = null) {\n"
+               "        if (Cloud.tryPlay(context, text, finished) { speakLocal(text, finished) }) return\n"
+               "        speakLocal(text, finished)\n"
+               "    }\n\n"
+               "    fun speakLocal(text: String, finished: (() -> Unit)? = null) {"),
+              ("fun stop() {", "fun stop() {\n        Cloud.stop()"),
+          ])
+
+          # ---- pil: ekran kapalıyken dinleme durur, sonsuz wakelock yok ----
+          RX = """private var paused = false
+              private val screenRx = object : android.content.BroadcastReceiver() {
+                  override fun onReceive(c: android.content.Context?, i: Intent?) {
+                      if (i?.action == Intent.ACTION_SCREEN_OFF) {
+                          paused = true
+                          main.removeCallbacksAndMessages(null)
+                          ears.cancel()
+                          Bus.state = JState.IDLE
+                          Bus.level = 0f
+                      } else if (i?.action == Intent.ACTION_SCREEN_ON) {
+                          paused = false
+                          busy = false
+                          if (alwaysOn) main.postDelayed({ listenWake() }, 800)
+                      }
+                  }
+              }
+          """
+          patch(B + "JarvisService.kt", [
+              ("private var alive = true", "private var alive = true\n    " + RX),
+              ("if (alwaysOn) acquire() else acquire(10 * 60 * 1000L)", "acquire(10 * 60 * 1000L)"),
+              ("Bus.serviceRunning = true",
+               "Bus.serviceRunning = true\n        registerReceiver(screenRx, android.content.IntentFilter().apply {\n"
+               "            addAction(Intent.ACTION_SCREEN_OFF)\n            addAction(Intent.ACTION_SCREEN_ON)\n        })"),
+              ("private fun listenWake() {", "private fun listenWake() {\n        if (paused) return"),
+              ("alive = false", "alive = false\n        try { unregisterReceiver(screenRx) } catch (_: Exception) {}"),
+              ('handleWake("jarvis")', 'wakeLock?.acquire(60_000L)\n                        handleWake("jarvis")'),
+          ])
+
+          # ---- pil: yüzen butonun animasyonu boştayken seyrek çizilir ----
+          patch(B + "FloatingService.kt", [
+              ("private var breathe = 0f", "private var breathe = 0f\n    private var lastDraw = 0L"),
+              ("rot = it.animatedValue as Float",
+               "rot = it.animatedValue as Float\n"
+               "                      val nowT = android.os.SystemClock.uptimeMillis()\n"
+               "                      if (nowT - lastDraw < (if (Bus.state == JState.IDLE) 110L else 40L)) return@addUpdateListener\n"
+               "                      lastDraw = nowT"),
+          ])
+
+          # ---- WhatsApp gönderince daha çabuk ana ekrana dön ----
+          patch(B + "VolumeKeyService.kt", [
+              ("main.postDelayed({ performGlobalAction(GLOBAL_ACTION_HOME) }, 1200)",
+               "main.postDelayed({ performGlobalAction(GLOBAL_ACTION_HOME) }, 600)"),
+          ])
+
+          # ---- animasyon: konuşurken / düşünürken dalga halkaları ----
+          patch(B + "Ui.kt", [
+              ("val energy = if (speaking) lv else 0f",
+               'val energy = if (speaking) lv else 0f\n'
+               '              val ripple by tr.animateFloat(0f, 1f, infiniteRepeatable(tween(2200, easing = LinearEasing)), label = "ripple")'),
+              ("// Tarama yayı",
+               "// Dalga halkaları\n"
+               "                  if (speaking || thinking) {\n"
+               "                      for (k in 0 until 3) {\n"
+               "                          val f = (ripple + k / 3f) % 1f\n"
+               "                          drawCircle(color.copy(alpha = (1f - f) * 0.30f), r * (0.34f + 0.46f * f), c, style = Stroke(2.dp.toPx()))\n"
+               "                      }\n"
+               "                  }\n\n"
+               "                  // Tarama yayı"),
+          ])
+
+          # ---- ayarlara yeni bölümler ----
+          patch(B + "MainActivity.kt", [
+              ("VoicePicker(speaker)", "ExtraSettings(speaker)\n                                          VoicePicker(speaker)"),
+          ])
+
+          print("JARVIS v6 yamalari uygulandi.")
+          PY
+
+      - name: Jarvis v7 yamalari
+        run: |
+          set -e
+          B=app/src/main/java/com/example/jarvis
+          cat > $B/V7.kt <<'KT'
+          package com.example.jarvis
+
+          import android.Manifest
+          import android.app.Application
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.media.AudioManager
+          import android.net.Uri
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.ContactsContract
+          import androidx.core.content.ContextCompat
+
+          /** Dinleme başlarken Redmi'deki "bip" sesini kısa süre susturur. */
+          object Quiet {
+              private val main = Handler(Looper.getMainLooper())
+              private val streams = intArrayOf(
+                  AudioManager.STREAM_MUSIC, AudioManager.STREAM_NOTIFICATION,
+                  AudioManager.STREAM_SYSTEM, AudioManager.STREAM_RING
+              )
+              private var muted = false
+
+              private fun app(): Context? = try {
+                  Class.forName("android.app.ActivityThread").getMethod("currentApplication").invoke(null) as Application
+              } catch (_: Exception) {
+                  null
+              }
+
+              fun beep() {
+                  val ctx = app() ?: return
+                  try {
+                      val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                      if (!muted) {
+                          muted = true
+                          for (s in streams) am.adjustStreamVolume(s, AudioManager.ADJUST_MUTE, 0)
+                      }
+                      main.removeCallbacks(restore)
+                      main.postDelayed(restore, 1100)
+                  } catch (_: Exception) {
+                      muted = false
+                  }
+              }
+
+              private val restore = Runnable {
+                  val ctx = app()
+                  if (ctx != null) {
+                      try {
+                          val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                          for (s in streams) am.adjustStreamVolume(s, AudioManager.ADJUST_UNMUTE, 0)
+                      } catch (_: Exception) {
+                      }
+                  }
+                  muted = false
+              }
+          }
+
+          object V7 {
+              private class Hit(val name: String, val number: String)
+
+              private var pendCall: Hit? = null
+              private val YES = setOf("evet", "ara", "evet ara", "arasin", "onayla", "olur", "tamam", "he", "evet arasin")
+              private val NO = setOf("hayir", "iptal", "vazgec", "arama", "olmaz", "yok", "hayir arama")
+
+              /** "yazar mısın", "yazabilir misin" gibi kibar kalıpları "yaz" yapar. */
+              fun fix(s: String): String =
+                  s.replace(Regex("(?iu)\\s+(yazar\\s+m[ıi]s[ıi]n|yazabilir\\s+misin|yazsana|yazar\\s+misin|yazar\\s+mısın)\\s*[?.!]*\\s*$"), " yaz")
+
+              private fun lookup(ctx: Context, n: String): Hit? {
+                  if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+                  val toks = n.split(" ").filter { it.length >= 3 }
+                  var best: Hit? = null
+                  var score = 0
+                  try {
+                      ctx.contentResolver.query(
+                          ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                          arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                          null, null, null
+                      )?.use { c ->
+                          while (c.moveToNext()) {
+                              val nm = c.getString(0) ?: continue
+                              val no = c.getString(1) ?: continue
+                              val f = normalize(nm)
+                              if (f.isBlank()) continue
+                              val first = f.substringBefore(" ")
+                              var sc = 0
+                              if (" $n ".contains(" $f ")) sc = 100 + f.length
+                              else if (first.length >= 3 && toks.any { it.startsWith(first) }) sc = 10 + first.length
+                              if (sc > score) {
+                                  score = sc
+                                  best = Hit(nm, no)
+                              }
+                          }
+                      }
+                  } catch (_: Exception) {
+                  }
+                  return best
+              }
+
+              private fun spell(no: String): String {
+                  val d = no.filter { it.isDigit() }
+                  return d.chunked(3).joinToString(" ")
+              }
+
+              private fun dial(ctx: Context, h: Hit): String {
+                  val uri = Uri.parse("tel:" + Uri.encode(h.number))
+                  val can = ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+                  return try {
+                      ctx.startActivity(Intent(if (can) Intent.ACTION_CALL else Intent.ACTION_DIAL, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      if (can) h.name + " aranıyor." else h.name + " için çevirici açıldı. Araçlar bölümünden arama iznini ver."
+                  } catch (_: Exception) {
+                      "Arama başlatılamadı."
+                  }
+              }
+
+              fun handle(ctx: Context, n: String, raw: String): String? {
+                  val p = pendCall
+                  if (p != null) {
+                      pendCall = null
+                      if (n in NO) return "Tamam, aramadım."
+                      if (n in YES) return dial(ctx, p)
+                  }
+                  val toks = n.split(" ")
+                  if (toks.size > 8) return null
+                  val last = toks.lastOrNull() ?: return null
+                  val isCall = last in setOf("ara", "arar", "arasana", "arayabilir", "aramak") ||
+                      n.endsWith("arar misin") || n.endsWith("arayabilir misin") || n.endsWith("ara misin")
+                  if (!isCall) return null
+                  val h = lookup(ctx, n) ?: return null
+                  pendCall = h
+                  return h.name + ", numara " + spell(h.number) + ". Aramamı ister misin? Evet ya da hayır de."
+              }
+          }
+          KT
+          python3 - <<'PY'
+          import io, re, glob
+
+          B = "app/src/main/java/com/example/jarvis/"
+
+          def rd(p):
+              with io.open(p, encoding="utf-8") as f:
+                  return f.read()
+
+          def wr(p, s):
+              with io.open(p, "w", encoding="utf-8") as f:
+                  f.write(s)
+
+          def soft(path, pairs):
+              s = rd(path)
+              for old, new in pairs:
+                  if s.count(old) != 1:
+                      print("UYARI: yama atlandi (" + path + "): " + old[:60].replace("\n", " "))
+                      continue
+                  s = s.replace(old, new)
+              wr(path, s)
+
+          # --- surum ---
+          soft("app/build.gradle.kts", [("versionCode = 6", "versionCode = 7"), ('versionName = "6.0"', 'versionName = "7.0"')])
+
+          # --- manifest: arama izni ---
+          soft("app/src/main/AndroidManifest.xml", [
+              ('<uses-permission android:name="android.permission.READ_CONTACTS"/>',
+               '<uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <uses-permission android:name="android.permission.CALL_PHONE"/>'),
+          ])
+
+          # --- komut zinciri: once V7 (kisiyi ara), WhatsApp "yazar misin" duzeltmesi ---
+          soft(B + "Core.kt", [
+              ("Extra.handle(ctx, n, raw) ?: Actions.handle(ctx, n, raw)",
+               "V7.handle(ctx, n, raw) ?: Extra.handle(ctx, n, raw) ?: Actions.handle(ctx, V7.fix(n), V7.fix(raw))"),
+          ])
+
+          # --- araclar: arama izni dugmesi ---
+          soft(B + "Extra.kt", [
+              ('var city by remember { mutableStateOf(prefs.getString("city", "") ?: "") }',
+               'var city by remember { mutableStateOf(prefs.getString("city", "") ?: "") }\n'
+               '    val callPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->\n'
+               '        Toast.makeText(ctx, if (ok) "Arama izni verildi" else "Arama izni verilmedi", Toast.LENGTH_SHORT).show()\n'
+               '    }'),
+              ('Text("HAVA DURUMU", color = CYAN, fontWeight = FontWeight.Bold)',
+               'CyanButton("ARAMA İZNİ VER (İSİM SÖYLEYİP ARA)") {\n'
+               '        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {\n'
+               '            Toast.makeText(ctx, "Zaten verilmiş", Toast.LENGTH_SHORT).show()\n'
+               '        } else {\n'
+               '            callPerm.launch(Manifest.permission.CALL_PHONE)\n'
+               '        }\n'
+               '    }\n\n'
+               '    Text("HAVA DURUMU", color = CYAN, fontWeight = FontWeight.Bold)'),
+          ])
+
+          # --- reaktor: durmadan donen cekirdek ---
+          soft(B + "Ui.kt", [
+              ('label = "ripple")',
+               'label = "ripple")\n'
+               '              val spin by tr.animateFloat(0f, 360f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "spin")'),
+              ("// Dalga halkaları",
+               "// Reaktör çekirdeği (hep hareket eder)\n"
+               "                  val pulse = 0.5f + 0.5f * Math.sin(ripple * 2.0 * Math.PI).toFloat()\n"
+               "                  drawCircle(color.copy(alpha = 0.10f + 0.10f * pulse), r * 0.15f, c)\n"
+               "                  drawCircle(color.copy(alpha = 0.55f), r * 0.15f, c, style = Stroke(2.dp.toPx()))\n"
+               "                  drawCircle(color.copy(alpha = 0.35f), r * 0.24f, c, style = Stroke(1.dp.toPx()))\n"
+               "                  for (k in 0 until 8) {\n"
+               "                      val a = Math.toRadians((spin + k * 45f).toDouble())\n"
+               "                      val rr = r * 0.20f\n"
+               "                      drawCircle(color.copy(alpha = 0.7f), 2.6.dp.toPx(),\n"
+               "                          androidx.compose.ui.geometry.Offset(c.x + (rr * Math.cos(a)).toFloat(), c.y + (rr * Math.sin(a)).toFloat()))\n"
+               "                  }\n\n"
+               "                  // Dalga halkaları"),
+          ])
+
+          # --- mikrofon bip sesi: her startListening cagrisindan once sustur ---
+          n = 0
+          for p in glob.glob(B + "*.kt"):
+              s = rd(p)
+              s2, k = re.subn(r"(\b[\w.]+)\.startListening\(", r"\1.also { Quiet.beep() }.startListening(", s)
+              if k:
+                  wr(p, s2)
+                  n += k
+          print("startListening yamali:", n)
+
+          # --- yuzen buton: ekran disina cikmasin ---
+          fp = B + "FloatingService.kt"
+          s = rd(fp)
+          lines = s.split("\n")
+          cnt = 0
+          for i, l in enumerate(lines):
+              m = re.match(r"^(\s*)([A-Za-z_]\w*)\.(x|y) = (.+)$", l)
+              if not m or "WindowManager" in l:
+                  continue
+              rhs = m.group(4).strip()
+              if rhs.count("(") != rhs.count(")") or re.search(r"[+\-*/,&|?:]$", rhs) or rhs.endswith("{"):
+                  continue
+              dim = "widthPixels" if m.group(3) == "x" else "heightPixels"
+              lines[i] = (m.group(1) + m.group(2) + "." + m.group(3) + " = (" + rhs + ").toInt().coerceIn(0, "
+                          "maxOf(0, resources.displayMetrics." + dim + " - 220))")
+              cnt += 1
+          wr(fp, "\n".join(lines))
+          print("yuzen buton sinirlandi:", cnt)
+          print("JARVIS v7 yamalari uygulandi.")
+          PY
+
+      - name: APK derle
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-apk-v7
+          path: app/build/outputs/apk/debug/app-debug.apk
