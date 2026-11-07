@@ -1,0 +1,3072 @@
+name: JARVIS APK derle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Android proje dosyalarini olustur
+        run: |
+          mkdir -p app app/src/main app/src/main/java/com/example/jarvis app/src/main/res/drawable app/src/main/res/mipmap-anydpi-v26 app/src/main/res/values app/src/main/res/xml
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "JarvisAI"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "com.example.jarvis"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.example.jarvis"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 5
+                  versionName = "5.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              buildFeatures {
+                  compose = true
+              }
+          }
+
+          dependencies {
+              implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+              implementation("androidx.core:core-ktx:1.15.0")
+              implementation("androidx.activity:activity-compose:1.10.0")
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.foundation:foundation")
+              implementation("androidx.compose.animation:animation")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+          }
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#00E5FF</item>
+                  <item name="android:statusBarColor">#030814</item>
+                  <item name="android:navigationBarColor">#030814</item>
+                  <item name="android:windowBackground">#030814</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="vol_desc">Ses kisma tusuna iki kez basinca Jarvis dinlemeye baslar. WhatsApp mesajini onayladiktan sonra gonder tusuna otomatik basar.</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/xml/volume_service.xml <<'EOF'
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagRequestFilterKeyEvents|flagReportViewIds"
+              android:canRequestFilterKeyEvents="true"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="200"
+              android:description="@string/vol_desc"/>
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+              <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
+              <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES"/>
+              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+              <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+
+              <queries>
+                  <package android:name="com.whatsapp"/>
+                  <package android:name="com.whatsapp.w4b"/>
+                  <intent>
+                      <action android:name="android.speech.RecognitionService"/>
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.TTS_SERVICE"/>
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN"/>
+                      <category android:name="android.intent.category.LAUNCHER"/>
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:label="JARVIS"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".FloatingService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="floating_assistant_button"/>
+                  </service>
+
+                  <service
+                      android:name=".JarvisService"
+                      android:exported="false"
+                      android:foregroundServiceType="microphone"/>
+
+                  <service
+                      android:name=".VolumeKeyService"
+                      android:exported="true"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService"/>
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/volume_service"/>
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_fg.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#1800D9FF" android:pathData="M54,54 m-43,0 a43,43 0 1,0 86,0 a43,43 0 1,0 -86,0"/>
+              <path android:strokeColor="#6600E5FF" android:strokeWidth="1.4" android:fillColor="#00000000"
+                  android:pathData="M54,8 A46,46 0 1,1 53.9,8 M54,15 A39,39 0 1,0 54.1,15"/>
+              <path android:strokeColor="#00E5FF" android:strokeWidth="2.8" android:fillColor="#00000000"
+                  android:pathData="M54,17 A37,37 0 0,1 87,37 M91,54 A37,37 0 0,1 71,87 M54,91 A37,37 0 0,1 21,71 M17,54 A37,37 0 0,1 37,21"/>
+              <path android:strokeColor="#B300E5FF" android:strokeWidth="2" android:fillColor="#00000000"
+                  android:pathData="M54,27 A27,27 0 1,1 53.9,27 M54,34 A20,20 0 1,0 54.1,34"/>
+              <path android:fillColor="#00E5FF" android:pathData="M54,54 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M54,54 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_bg.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#030814" android:pathData="M0,0h108v108h-108z"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_bg"/>
+              <foreground android:drawable="@drawable/ic_launcher_fg"/>
+          </adaptive-icon>
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/Actions.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.app.ActivityManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ApplicationInfo
+          import android.media.AudioManager
+          import android.net.Uri
+          import android.os.BatteryManager
+          import android.os.SystemClock
+          import android.provider.AlarmClock
+          import android.provider.Settings
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.setValue
+          import kotlinx.coroutines.delay
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.util.Calendar
+
+          data class Contact(val name: String, val number: String)
+
+          object SendState {
+              @Volatile
+              var until = 0L
+          }
+
+          object Flags {
+              var floating by mutableStateOf(false)
+          }
+
+          /** Onay bekleyen WhatsApp mesajı. Gönderme ancak "evet" denince yapılır. */
+          object Pending {
+              var active = false
+              var name = ""
+              var number = ""
+              var text = ""
+
+              fun set(n: String, num: String, t: String) {
+                  active = true
+                  name = n
+                  number = num
+                  text = t
+              }
+
+              fun clear() {
+                  active = false
+              }
+          }
+
+          fun loadContacts(ctx: Context): List<Contact> {
+              val raw = ctx.getSharedPreferences(PREF, 0).getString("contacts", null) ?: return emptyList()
+              return try {
+                  val a = JSONArray(raw)
+                  List(a.length()) {
+                      val o = a.getJSONObject(it)
+                      Contact(o.getString("name"), o.getString("number"))
+                  }
+              } catch (_: Exception) {
+                  emptyList()
+              }
+          }
+
+          fun saveContacts(ctx: Context, list: List<Contact>) {
+              val a = JSONArray()
+              list.forEach { a.put(JSONObject().put("name", it.name).put("number", it.number)) }
+              ctx.getSharedPreferences(PREF, 0).edit().putString("contacts", a.toString()).apply()
+          }
+
+          fun waNumber(s: String): String {
+              val d = s.filter { it.isDigit() }
+              return when {
+                  d.startsWith("00") -> d.drop(2)
+                  d.startsWith("90") && d.length == 12 -> d
+                  d.startsWith("0") && d.length == 11 -> "90" + d.drop(1)
+                  d.length == 10 -> "90" + d
+                  else -> d
+              }
+          }
+
+          fun waIntent(ctx: Context, number: String, text: String): Intent {
+              val uri = Uri.parse("https://api.whatsapp.com/send?phone=" + waNumber(number) + "&text=" + Uri.encode(text))
+              val i = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              val pm = ctx.packageManager
+              if (pm.getLaunchIntentForPackage("com.whatsapp") != null) {
+                  i.setPackage("com.whatsapp")
+              } else if (pm.getLaunchIntentForPackage("com.whatsapp.w4b") != null) {
+                  i.setPackage("com.whatsapp.w4b")
+              }
+              return i
+          }
+
+          fun sendNow(ctx: Context, number: String, text: String): Boolean {
+              SendState.until = SystemClock.elapsedRealtime() + 120_000L
+              return try {
+                  ctx.startActivity(waIntent(ctx, number, text))
+                  true
+              } catch (_: Exception) {
+                  SendState.until = 0L
+                  false
+              }
+          }
+
+          fun a11yEnabled(ctx: Context): Boolean {
+              val s = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                  ?: return false
+              return s.contains(ctx.packageName + "/")
+          }
+
+          fun fmtClock(h: Int, m: Int): String = String.format(TR, "%02d:%02d", h, m)
+
+          object Actions {
+
+              private val NUM = mapOf(
+                  "sifir" to 0, "bir" to 1, "iki" to 2, "uc" to 3, "dort" to 4, "bes" to 5,
+                  "alti" to 6, "yedi" to 7, "sekiz" to 8, "dokuz" to 9, "on" to 10,
+                  "yirmi" to 20, "otuz" to 30, "kirk" to 40, "elli" to 50, "altmis" to 60
+              )
+
+              private val SUFFIX = setOf("e", "a", "ye", "ya", "ne", "na", "den", "dan")
+
+              private val WAKE_RAW = Regex("(?i)^\\s*(hey|hay|ey)?\\s*(jarvis|carvis|harvis|cervis|javis|jar vis)[,.!]*\\s*")
+
+              private val YES = setOf("evet", "evet gonder", "gonder", "onayla", "olur", "tamam", "yolla", "evet yolla", "evet at", "he")
+              private val NO = setOf("hayir", "iptal", "vazgec", "gonderme", "olmaz", "hayir gonderme", "yok")
+
+              suspend fun handle(ctx: Context, n: String, raw: String): String? =
+                  confirm(ctx, n) ?: optimizeCmd(ctx, n) ?: timer(ctx, n) ?: alarm(ctx, n) ?: quick(ctx, n) ?: whatsapp(ctx, n, raw)
+
+              // ---------- sayılar ve saat ----------
+
+              private fun digits(n: String): String {
+                  val out = ArrayList<String>()
+                  var acc = -1
+                  for (t in n.split(" ")) {
+                      val v = NUM[t]
+                      if (v != null) {
+                          acc = when {
+                              acc < 0 -> v
+                              acc >= 20 && acc % 10 == 0 && v in 1..9 -> acc + v
+                              else -> {
+                                  out.add(acc.toString())
+                                  v
+                              }
+                          }
+                      } else {
+                          if (acc >= 0) {
+                              out.add(acc.toString())
+                              acc = -1
+                          }
+                          out.add(t)
+                      }
+                  }
+                  if (acc >= 0) out.add(acc.toString())
+                  return out.joinToString(" ")
+              }
+
+              private fun parseClock(src: String): Pair<Int, Int>? {
+                  val n = digits(src)
+                  val a = Regex("\\b(\\d{1,2}) (\\d{2})\\b").find(n)
+                  var h: Int
+                  val m: Int
+                  if (a != null) {
+                      h = a.groupValues[1].toInt()
+                      m = a.groupValues[2].toInt()
+                  } else {
+                      val b = Regex("\\b(\\d{1,2})\\b( bucuk)?").find(n) ?: return null
+                      h = b.groupValues[1].toInt()
+                      m = if (b.groupValues[2].isNotEmpty()) 30 else 0
+                  }
+                  val pm = Regex("\\b(aksam|ogleden sonra)\\b").containsMatchIn(n)
+                  if (pm && h in 1..11) h += 12 else if (n.contains("gece") && h in 6..11) h += 12
+                  if (h !in 0..23 || m !in 0..59) return null
+                  return Pair(h, m)
+              }
+
+              private fun durationSec(n: String): Int {
+                  var total = 0
+                  Regex("\\b(\\d{1,3}) (saat|dakika|dk|saniye|sn)\\b").findAll(digits(n)).forEach {
+                      val v = it.groupValues[1].toInt()
+                      total += when (it.groupValues[2]) {
+                          "saat" -> v * 3600
+                          "dakika", "dk" -> v * 60
+                          else -> v
+                      }
+                  }
+                  return total
+              }
+
+              private fun spokenDuration(sec: Int): String {
+                  val h = sec / 3600
+                  val m = (sec % 3600) / 60
+                  val s = sec % 60
+                  val parts = ArrayList<String>()
+                  if (h > 0) parts.add("$h saat")
+                  if (m > 0) parts.add("$m dakika")
+                  if (s > 0) parts.add("$s saniye")
+                  return parts.joinToString(" ")
+              }
+
+              // ---------- zamanlayıcı ----------
+
+              private fun timer(ctx: Context, n: String): String? {
+                  val sec = durationSec(n)
+                  val wants = n.contains("zamanlayici") || n.contains("sayac") || n.contains("geri sayim")
+                  val relative = n.contains("sonra") && sec > 0 &&
+                      (n.contains("uyar") || n.contains("hatirlat") || n.contains("uyandir") || n.contains("alarm"))
+                  if (!wants && !relative) return null
+                  if (sec <= 0) return "Kaç dakikalık zamanlayıcı kurayım?"
+                  return try {
+                      val i = Intent(AlarmClock.ACTION_SET_TIMER)
+                          .putExtra(AlarmClock.EXTRA_LENGTH, sec)
+                          .putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvis")
+                          .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                      ctx.startActivity(i)
+                      spokenDuration(sec) + " için zamanlayıcı kuruldu."
+                  } catch (_: Exception) {
+                      "Zamanlayıcı kurulamadı. Saat uygulaması bulunamadı ya da izin verilmedi."
+                  }
+              }
+
+              // ---------- alarm ----------
+
+              private fun setAlarm(ctx: Context, h: Int, m: Int, label: String, days: List<Int>?): Boolean {
+                  return try {
+                      val i = Intent(AlarmClock.ACTION_SET_ALARM)
+                          .putExtra(AlarmClock.EXTRA_HOUR, h)
+                          .putExtra(AlarmClock.EXTRA_MINUTES, m)
+                          .putExtra(AlarmClock.EXTRA_MESSAGE, label)
+                          .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                      if (days != null) i.putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS, ArrayList(days))
+                      ctx.startActivity(i)
+                      true
+                  } catch (_: Exception) {
+                      false
+                  }
+              }
+
+              private val WEEKDAYS = listOf(
+                  Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY
+              )
+
+              private fun schoolAlarm(ctx: Context): String {
+                  val p = ctx.getSharedPreferences(PREF, 0)
+                  val st = p.getString("school", null)
+                      ?: return "Okul saatini bilmiyorum. 'Okul saatim 9' de, sonra tekrar iste."
+                  val prep = p.getInt("prep", 90)
+                  val mm = Regex("(\\d{1,2}):(\\d{2})").find(st) ?: return "Okul saati geçersiz."
+                  val total = ((mm.groupValues[1].toInt() * 60 + mm.groupValues[2].toInt() - prep) % 1440 + 1440) % 1440
+                  val h = total / 60
+                  val m = total % 60
+                  return if (setAlarm(ctx, h, m, "Okul", WEEKDAYS)) {
+                      "Okul $st de başlıyor. Hazırlanman için $prep dakika pay bıraktım, alarmı " +
+                          fmtClock(h, m) + " olarak hafta içi her gün kurdum."
+                  } else "Alarm kurulamadı. Saat uygulaması bulunamadı ya da izin verilmedi."
+              }
+
+              private fun alarm(ctx: Context, n: String): String? {
+                  val clock = parseClock(n)
+                  if (n.contains("okul saat") && clock != null) {
+                      val t = fmtClock(clock.first, clock.second)
+                      ctx.getSharedPreferences(PREF, 0).edit().putString("school", t).apply()
+                      return if (!n.contains("alarm")) "Okul saatini $t olarak kaydettim."
+                      else "Okul saatini $t olarak kaydettim. " + schoolAlarm(ctx)
+                  }
+
+                  if (!n.contains("alarm")) return null
+
+                  if (Regex("\\b(kapat|sil|iptal)\\b").containsMatchIn(n)) {
+                      return try {
+                          ctx.startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                          "Alarmları yönetebilmen için saat uygulamasını açıyorum."
+                      } catch (_: Exception) {
+                          "Saat uygulaması açılamadı."
+                      }
+                  }
+
+                  if (n.contains("okul")) return schoolAlarm(ctx)
+                  if (clock == null) return "Alarmı saat kaça kurayım?"
+
+                  val days: List<Int>? = when {
+                      n.contains("hafta ici") -> WEEKDAYS
+                      n.contains("her gun") -> listOf(1, 2, 3, 4, 5, 6, 7)
+                      else -> null
+                  }
+                  return if (setAlarm(ctx, clock.first, clock.second, "Jarvis", days)) {
+                      "Alarm " + fmtClock(clock.first, clock.second) + " için kuruldu."
+                  } else "Alarm kurulamadı. Saat uygulaması bulunamadı ya da izin verilmedi."
+              }
+
+              // ---------- optimizasyon ----------
+
+              private fun freeMb(am: ActivityManager): Int {
+                  val mi = ActivityManager.MemoryInfo()
+                  am.getMemoryInfo(mi)
+                  return (mi.availMem / 1048576L).toInt()
+              }
+
+              suspend fun runOptimize(ctx: Context): String {
+                  val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                  val before = freeMb(am)
+                  val keep = setOf(
+                      "com.whatsapp", "com.whatsapp.w4b", "org.telegram.messenger",
+                      "com.facebook.orca", "com.instagram.android", "com.spotify.music"
+                  )
+                  val apps: List<ApplicationInfo> = try {
+                      ctx.packageManager.getInstalledApplications(0)
+                  } catch (_: Exception) {
+                      emptyList()
+                  }
+                  for (a in apps) {
+                      if (a.packageName == ctx.packageName || a.packageName in keep) continue
+                      if ((a.flags and ApplicationInfo.FLAG_SYSTEM) != 0) continue
+                      try {
+                          am.killBackgroundProcesses(a.packageName)
+                      } catch (_: Exception) {
+                      }
+                  }
+                  delay(1200)
+                  val after = freeMb(am)
+
+                  var extra = ""
+                  try {
+                      if (Settings.System.canWrite(ctx)) {
+                          val cur = Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT, 60000)
+                          if (cur > 30000) {
+                              Settings.System.putInt(ctx.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT, 30000)
+                              extra += " Ekran zaman aşımını 30 saniyeye aldım."
+                          }
+                      } else {
+                          extra += " Ekran zaman aşımını kısabilmem için Araçlar bölümünden ayar değiştirme iznini ver."
+                      }
+                  } catch (_: Exception) {
+                  }
+
+                  val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                  val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                  val memText = if (after > before) "Boş bellek $before MB'tan $after MB'a çıktı."
+                  else "Boş bellek şu an yaklaşık $after MB."
+                  return "Optimizasyon tamamlandı. Arka plandaki uygulamalar temizlendi. $memText$extra Pil yüzde $pct."
+              }
+
+              private suspend fun optimizeCmd(ctx: Context, n: String): String? {
+                  if (n.contains("pil tasarruf")) {
+                      return try {
+                          ctx.startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                          "Pil tasarruf ayarını açıyorum."
+                      } catch (_: Exception) {
+                          "Pil tasarruf ayarı açılamadı."
+                      }
+                  }
+                  val hit = n.contains("optimiz") || n.contains("ram temizle") ||
+                      n.contains("bellegi temizle") || n.contains("telefonu hizlandir")
+                  if (!hit) return null
+                  return runOptimize(ctx)
+              }
+
+              // ---------- küçük ekstralar ----------
+
+              private fun quick(ctx: Context, n: String): String? {
+                  fun open(i: Intent): Boolean = try {
+                      ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      true
+                  } catch (_: Exception) {
+                      false
+                  }
+
+                  if (n.contains("sesi ")) {
+                      val up = n.contains("arttir") || n.contains("yukselt") || n.contains("ac")
+                      val down = n.contains("kis") || n.contains("azalt") || n.contains("alcalt")
+                      if (up || down) {
+                          val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                          repeat(3) {
+                              am.adjustStreamVolume(
+                                  AudioManager.STREAM_MUSIC,
+                                  if (down) AudioManager.ADJUST_LOWER else AudioManager.ADJUST_RAISE,
+                                  if (it == 2) AudioManager.FLAG_SHOW_UI else 0
+                              )
+                          }
+                          return if (down) "Ses kısıldı." else "Ses artırıldı."
+                      }
+                  }
+                  if (n.contains("wifi") && n.contains("ayar")) {
+                      return if (open(Intent(Settings.ACTION_WIFI_SETTINGS))) "Wi-Fi ayarlarını açıyorum." else "Açılamadı."
+                  }
+                  if (n.contains("bluetooth") && n.contains("ayar")) {
+                      return if (open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))) "Bluetooth ayarlarını açıyorum." else "Açılamadı."
+                  }
+                  if (Regex("\\b(ara|arasana|aratir misin)\\b").containsMatchIn(n) &&
+                      !n.contains("google") && !n.contains("youtube") && !n.contains("chrome")
+                  ) {
+                      val c = findContact(ctx, n) ?: return null
+                      return if (open(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(c.number))))) {
+                          c.name + " için arama ekranını açtım, yeşil tuşa basman yeterli."
+                      } else "Arama ekranı açılamadı."
+                  }
+                  return null
+              }
+
+              // ---------- WhatsApp ----------
+
+              private fun candidates(name: String): List<String> {
+                  val nm = normalize(name)
+                  val out = ArrayList<String>()
+                  if (nm.isNotBlank()) out.add(nm)
+                  val first = nm.substringBefore(" ")
+                  if (first != nm && first.length >= 3) out.add(first)
+                  for (c in ArrayList(out)) {
+                      if (c.length >= 4 && c.endsWith("m") && !c.contains(" ")) out.add(c.dropLast(1))
+                  }
+                  return out.filter { it.length >= 3 }
+              }
+
+              private fun findContact(ctx: Context, n: String): Contact? {
+                  var best: Contact? = null
+                  var bestPos = Int.MAX_VALUE
+                  var bestLen = 0
+                  for (c in loadContacts(ctx)) {
+                      for (cand in candidates(c.name)) {
+                          val m = Regex("(^| )" + Regex.escape(cand)).find(n) ?: continue
+                          val pos = m.range.first
+                          if (pos < bestPos || (pos == bestPos && cand.length > bestLen)) {
+                              best = c
+                              bestPos = pos
+                              bestLen = cand.length
+                          }
+                      }
+                  }
+                  return best
+              }
+
+              private fun dropContact(t: String, c: Contact): String {
+                  val words = normalize(c.name).split(" ").filter { it.isNotBlank() }
+                  if (words.isEmpty()) return t
+                  val first = words[0]
+                  val stem = if (words.size == 1 && first.length >= 4 && first.endsWith("m")) first.dropLast(1) else first
+                  val toks = t.split(Regex("\\s+")).toMutableList()
+                  val idx = toks.indexOfFirst {
+                      val x = normalize(it)
+                      x.startsWith(first) || (stem.length >= 3 && x.startsWith(stem))
+                  }
+                  if (idx < 0) return t
+                  toks.removeAt(idx)
+                  var k = 1
+                  while (k < words.size && idx < toks.size && normalize(toks[idx]).startsWith(words[k])) {
+                      toks.removeAt(idx)
+                      k++
+                  }
+                  if (idx < toks.size && normalize(toks[idx]) in SUFFIX) toks.removeAt(idx)
+                  return toks.joinToString(" ")
+              }
+
+              private fun extractMessage(raw: String, c: Contact): String {
+                  var t = raw.trim().replace(WAKE_RAW, "")
+
+                  // "Ahmet'e şunu yaz: yarın görüşelim" biçimi
+                  val trig = Regex("(?i)(şunu|sunu|şöyle|soyle|şu mesajı|su mesaji)\\s+(yaz|at|gönder|gonder|yolla|söyle)?[\\s:,\\-]*").find(t)
+                  if (trig != null) return t.substring(trig.range.last + 1).trim()
+
+                  t = dropContact(t, c)
+                  t = t.replace(Regex("(?i)\\b(whatsapp|vatsap|watsap|whatsap)\\S*"), " ")
+                  t = t.replace(Regex("(?i)\\b(mesajı|mesaji|mesaj)\\b"), " ")
+                  t = t.replace(Regex("(?i)\\s+(yaz|yazsana|yolla|gönder|gonder|ilet|söyle|soyle|de|diye)\\s*[.!]?\\s*$"), " ")
+                  return t.replace(Regex("\\s+"), " ").trim(' ', '.', ',', ':', '"')
+              }
+
+              private fun whatsapp(ctx: Context, n: String, raw: String): String? {
+                  val verb = Regex("\\b(yaz|yazsana|gonder|yolla|ilet|mesaj)\\b").containsMatchIn(n)
+                  if (!verb) return null
+                  val c = findContact(ctx, n)
+                  if (c == null) {
+                      return if (n.contains("whatsapp")) {
+                          "Bu kişiyi rehberimde bulamadım. Araçlar bölümünden kişiyi ekler misin?"
+                      } else null
+                  }
+                  val msg = extractMessage(raw, c)
+                  if (msg.isBlank()) return c.name + " için ne yazayım?"
+                  Pending.set(c.name, c.number, msg)
+                  return c.name + " kişisine \"" + msg + "\" mesajını WhatsApp'tan göndereyim mi? Evet ya da hayır de."
+              }
+
+              private fun confirm(ctx: Context, n: String): String? {
+                  if (!Pending.active) return null
+                  if (n in NO) {
+                      Pending.clear()
+                      return "Tamam, göndermedim."
+                  }
+                  if (n in YES) {
+                      val name = Pending.name
+                      val ok = sendNow(ctx, Pending.number, Pending.text)
+                      Pending.clear()
+                      return when {
+                          !ok -> "WhatsApp açılamadı. Yüklü olduğundan emin ol."
+                          a11yEnabled(ctx) -> "$name kişisine gönderiyorum."
+                          else -> "Mesajı hazırladım ama otomatik gönderme için erişilebilirlik servisi kapalı. Gönder tuşuna sen bas."
+                      }
+                  }
+                  Pending.clear()
+                  return null
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/Core.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.content.Context
+          import android.content.Intent
+          import android.hardware.camera2.CameraCharacteristics
+          import android.hardware.camera2.CameraManager
+          import android.net.Uri
+          import android.os.BatteryManager
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.setValue
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          const val PREF = "jarvis_data"
+          val TR: Locale = Locale("tr", "TR")
+
+          class Chat(val text: String, val user: Boolean) {
+              var played = false
+          }
+
+          data class LocalCommand(val trigger: String, val target: String, val url: Boolean)
+
+          enum class JState { IDLE, WAKE, LISTENING, THINKING, SPEAKING }
+
+          object Bus {
+              val messages = mutableStateListOf<Chat>()
+              var state by mutableStateOf(JState.IDLE)
+              var level by mutableStateOf(0f)
+              var serviceRunning by mutableStateOf(false)
+              val history = mutableListOf<Pair<String, String>>()
+          }
+
+          fun defaults() = listOf(
+              LocalCommand("youtube", "https://www.youtube.com", true),
+              LocalCommand("google", "https://www.google.com", true),
+              LocalCommand("harita", "https://maps.google.com", true),
+              LocalCommand("whatsapp", "com.whatsapp", false),
+              LocalCommand("instagram", "com.instagram.android", false),
+              LocalCommand("spotify", "com.spotify.music", false),
+              LocalCommand("telegram", "org.telegram.messenger", false),
+              LocalCommand("chrome", "com.android.chrome", false),
+              LocalCommand("kamera", "android.media.action.STILL_IMAGE_CAMERA", false),
+              LocalCommand("ayarlar", "android.settings.SETTINGS", false)
+          )
+
+          fun loadCommands(context: Context): List<LocalCommand> {
+              val raw = context.getSharedPreferences(PREF, 0).getString("commands", null) ?: return defaults()
+              return try {
+                  val a = JSONArray(raw)
+                  List(a.length()) {
+                      val o = a.getJSONObject(it)
+                      LocalCommand(o.getString("trigger"), o.getString("target"), o.getBoolean("url"))
+                  }
+              } catch (_: Exception) {
+                  defaults()
+              }
+          }
+
+          fun saveCommands(context: Context, commands: List<LocalCommand>) {
+              val a = JSONArray()
+              commands.forEach {
+                  a.put(JSONObject().put("trigger", it.trigger).put("target", it.target).put("url", it.url))
+              }
+              context.getSharedPreferences(PREF, 0).edit().putString("commands", a.toString()).apply()
+          }
+
+          fun normalize(s: String): String =
+              s.lowercase(TR)
+                  .replace("ı", "i").replace("ü", "u").replace("ö", "o")
+                  .replace("ş", "s").replace("ç", "c").replace("ğ", "g")
+                  .replace(Regex("[^a-z0-9 ]"), " ")
+                  .replace(Regex("\\s+"), " ")
+                  .trim()
+
+          fun fixAlias(s: String): String =
+              s.replace(Regex("\\b(watsap|vatsap|whatsap|votsap|vhatsap|vatsapp|watsapp)\\b"), "whatsapp")
+                  .replace(Regex("\\b(krom|kirom|kroom)\\b"), "chrome")
+                  .replace(Regex("\\b(yutub|youtub|yutup)\\b"), "youtube")
+
+          fun userName(context: Context): String =
+              (context.getSharedPreferences(PREF, 0).getString("name", "efendim") ?: "efendim").ifBlank { "efendim" }
+
+          fun openCommand(context: Context, c: LocalCommand): Boolean {
+              return try {
+                  val intent = when {
+                      c.url -> {
+                          val address = if (c.target.startsWith("http")) c.target else "https://${c.target}"
+                          Intent(Intent.ACTION_VIEW, Uri.parse(address))
+                      }
+                      c.target.startsWith("android.") -> Intent(c.target)
+                      else -> context.packageManager.getLaunchIntentForPackage(c.target) ?: return false
+                  }
+                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  context.startActivity(intent)
+                  true
+              } catch (_: Exception) {
+                  false
+              }
+          }
+
+          fun torch(ctx: Context, on: Boolean): Boolean {
+              return try {
+                  val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                  val id = cm.cameraIdList.firstOrNull {
+                      cm.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                  }
+                  if (id == null) false else {
+                      cm.setTorchMode(id, on)
+                      true
+                  }
+              } catch (_: Exception) {
+                  false
+              }
+          }
+
+          object Brain {
+              private val OPEN_WORDS = setOf("ac", "acar", "acsana", "acin", "git", "baslat", "calistir", "aciver", "acabilir")
+              private val SEARCH_WORDS = setOf("ara", "arat", "arasana", "aratsana", "aratir", "arar")
+              private val MODELS = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b")
+
+              suspend fun respond(ctx: Context, raw: String): String {
+                  Bus.messages.add(Chat(raw, true))
+                  Bus.state = JState.THINKING
+                  val n = fixAlias(normalize(raw))
+                  val reply = Actions.handle(ctx, n, raw) ?: builtin(ctx, n) ?: local(ctx, n, raw) ?: remote(ctx, raw)
+                  Bus.messages.add(Chat(reply, false))
+                  return reply
+              }
+
+              private fun builtin(ctx: Context, n: String): String? {
+                  val words = n.split(" ")
+                  return when {
+                      n.contains("saat kac") || n.contains("saati soyle") ->
+                          "Saat şu an " + SimpleDateFormat("HH:mm", TR).format(Date()) + "."
+
+                      n.contains("tarih") || n.contains("hangi gun") ||
+                          n.contains("bugun gunlerden") || n.contains("bugun ayin kaci") ->
+                          "Bugün " + SimpleDateFormat("d MMMM yyyy, EEEE", TR).format(Date()) + "."
+
+                      words.any { it.startsWith("fener") || it.startsWith("isik") || it.startsWith("isig") } -> {
+                          val on = !(n.contains("kapat") || n.contains("sondur") || n.contains("kapa"))
+                          if (torch(ctx, on)) {
+                              if (on) "Işık açıldı." else "Işık kapatıldı."
+                          } else "Fenere erişemedim."
+                      }
+
+                      "pil" in words || n.contains("sarj") -> {
+                          val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                          "Pil seviyesi yüzde " + bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) + "."
+                      }
+
+                      n.contains("sohbeti temizle") || n.contains("hafizayi sil") -> {
+                          Bus.history.clear()
+                          "Sohbet hafızası temizlendi."
+                      }
+
+                      else -> null
+                  }
+              }
+
+              private fun local(ctx: Context, n: String, raw: String): String? {
+                  val tokens = n.split(" ")
+
+                  if (tokens.any { it in SEARCH_WORDS }) {
+                      val q = raw
+                          .replace(Regex("(?i)(chrome|google|krom|youtube)(['’ ]?(da|de)\\b)?"), "")
+                          .replace(Regex("(?i)\\b(ara|arat|arasana|aratsana|aratır)\\b"), "")
+                          .replace(Regex("\\s+"), " ")
+                          .trim()
+                      if (q.isNotBlank()) {
+                          val url = if (n.contains("youtube")) {
+                              "https://www.youtube.com/results?search_query=" + Uri.encode(q)
+                          } else {
+                              "https://www.google.com/search?q=" + Uri.encode(q)
+                          }
+                          return try {
+                              val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                              if (n.contains("chrome")) i.setPackage("com.android.chrome")
+                              try {
+                                  ctx.startActivity(i)
+                              } catch (_: Exception) {
+                                  i.setPackage(null)
+                                  ctx.startActivity(i)
+                              }
+                              "$q aranıyor."
+                          } catch (_: Exception) {
+                              "Arama açılamadı."
+                          }
+                      }
+                  }
+
+                  val m = loadCommands(ctx).firstOrNull {
+                      val t = normalize(it.trigger)
+                      n == t || (n.contains(t) && (tokens.size <= 3 || tokens.any { w -> w in OPEN_WORDS }))
+                  } ?: return null
+                  return if (openCommand(ctx, m)) "${m.trigger} açılıyor."
+                  else "${m.trigger} açılamadı. Uygulama yüklü olmayabilir ya da arka planda açma izni verilmemiş olabilir."
+              }
+
+              private suspend fun remote(ctx: Context, raw: String): String {
+                  val p = ctx.getSharedPreferences(PREF, 0)
+                  val key = p.getString("api_key", "") ?: ""
+                  if (key.isBlank()) return "Bunu anlayamadım. Sohbet için Ayarlar bölümünden Groq API anahtarını girmen gerekiyor."
+                  val name = userName(ctx)
+                  return try {
+                      val ans = askGroq(raw, key, name, Bus.history.takeLast(10).toList())
+                      Bus.history.add("user" to raw)
+                      Bus.history.add("assistant" to ans)
+                      while (Bus.history.size > 20) Bus.history.removeAt(0)
+                      ans
+                  } catch (e: IllegalStateException) {
+                      e.message ?: "Bir hata oluştu."
+                  } catch (e: Exception) {
+                      "Bağlantı kurulamadı. İnternetini kontrol et."
+                  }
+              }
+
+              private suspend fun askGroq(
+                  question: String,
+                  apiKey: String,
+                  name: String,
+                  hist: List<Pair<String, String>>
+              ): String = withContext(Dispatchers.IO) {
+                  val msgs = JSONArray()
+                  msgs.put(
+                      JSONObject().put("role", "system").put(
+                          "content",
+                          "Sen JARVIS adlı Türkçe kişisel asistansın. Kullanıcıya '$name' diye hitap et. " +
+                              "Sıcak, zarif, zeki ve doğal bir kadın asistan gibi konuş. Cevapların sesli okunacak; " +
+                              "emoji, Markdown, liste veya başlık kullanma. Kısa cümleler kur. " +
+                              "Yapmadığın işlemleri yaptığını söyleme. Genellikle 1-4 cümle yaz."
+                      )
+                  )
+                  hist.forEach { msgs.put(JSONObject().put("role", it.first).put("content", it.second)) }
+                  msgs.put(JSONObject().put("role", "user").put("content", question.take(4000)))
+
+                  var lastCode = 0
+                  var lastMsg = ""
+
+                  for (model in MODELS) {
+                      var conn: HttpURLConnection? = null
+                      try {
+                          val body = JSONObject().put("model", model).put("messages", msgs)
+                              .put("temperature", 0.6).put("max_tokens", 400)
+
+                          conn = URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection
+                          conn.requestMethod = "POST"
+                          conn.connectTimeout = 15000
+                          conn.readTimeout = 30000
+                          conn.doOutput = true
+                          conn.setRequestProperty("Authorization", "Bearer $apiKey")
+                          conn.setRequestProperty("Content-Type", "application/json")
+                          conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+
+                          val code = conn.responseCode
+                          val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                          val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+
+                          if (code in 200..299) {
+                              return@withContext JSONObject(response)
+                                  .getJSONArray("choices").getJSONObject(0)
+                                  .getJSONObject("message").getString("content").trim()
+                          }
+
+                          lastCode = code
+                          lastMsg = try {
+                              JSONObject(response).getJSONObject("error").getString("message")
+                          } catch (_: Exception) {
+                              ""
+                          }
+
+                          if (code == 401) throw IllegalStateException("API anahtarı geçersiz. Ayarlardan kontrol et.")
+                          if (code == 429) throw IllegalStateException("Groq istek limiti doldu. Biraz sonra tekrar dene.")
+                      } finally {
+                          conn?.disconnect()
+                      }
+                  }
+                  throw IllegalStateException(("Groq hatası, HTTP $lastCode. $lastMsg").take(200))
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/FloatingService.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.animation.ValueAnimator
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.graphics.Canvas
+          import android.graphics.Paint
+          import android.graphics.PixelFormat
+          import android.graphics.RadialGradient
+          import android.graphics.RectF
+          import android.graphics.Shader
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Build
+          import android.os.IBinder
+          import android.provider.Settings
+          import android.text.InputType
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.WindowManager
+          import android.view.animation.LinearInterpolator
+          import android.view.inputmethod.EditorInfo
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.SupervisorJob
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.launch
+
+          private fun withA(color: Int, a: Int): Int = (color and 0x00FFFFFF) or (a.coerceIn(0, 255) shl 24)
+
+          /** Ekranda yüzen küçük ark reaktörü. */
+          class OrbView(ctx: android.content.Context) : View(ctx) {
+              private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+              private val rect = RectF()
+              private var rot = 0f
+              private var breathe = 0f
+
+              private val rotAnim = ValueAnimator.ofFloat(0f, 360f).apply {
+                  duration = 7000
+                  repeatCount = ValueAnimator.INFINITE
+                  interpolator = LinearInterpolator()
+                  addUpdateListener {
+                      rot = it.animatedValue as Float
+                      invalidate()
+                  }
+              }
+              private val breatheAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+                  duration = 1800
+                  repeatCount = ValueAnimator.INFINITE
+                  repeatMode = ValueAnimator.REVERSE
+                  addUpdateListener { breathe = it.animatedValue as Float }
+              }
+
+              override fun onAttachedToWindow() {
+                  super.onAttachedToWindow()
+                  rotAnim.start()
+                  breatheAnim.start()
+              }
+
+              override fun onDetachedFromWindow() {
+                  rotAnim.cancel()
+                  breatheAnim.cancel()
+                  super.onDetachedFromWindow()
+              }
+
+              override fun onDraw(c: Canvas) {
+                  val accent = when (Bus.state) {
+                      JState.THINKING -> 0xFFFFA726
+                      JState.LISTENING -> 0xFF00E676
+                      JState.WAKE -> 0xFFB388FF
+                      else -> 0xFF00E5FF
+                  }.toInt()
+                  val cx = width / 2f
+                  val cy = height / 2f
+                  val r = minOf(cx, cy)
+
+                  p.shader = null
+                  p.style = Paint.Style.FILL
+                  p.color = 0xEE030814.toInt()
+                  c.drawCircle(cx, cy, r * 0.96f, p)
+
+                  p.shader = RadialGradient(cx, cy, r, intArrayOf(withA(accent, 90), withA(accent, 0)), null, Shader.TileMode.CLAMP)
+                  c.drawCircle(cx, cy, r, p)
+                  p.shader = null
+
+                  p.style = Paint.Style.STROKE
+                  p.strokeWidth = r * 0.06f
+                  p.color = withA(accent, 230)
+                  c.drawCircle(cx, cy, r * 0.88f, p)
+
+                  p.strokeWidth = r * 0.15f
+                  p.color = withA(accent, 170 + (70 * breathe).toInt())
+                  rect.set(cx - r * 0.58f, cy - r * 0.58f, cx + r * 0.58f, cy + r * 0.58f)
+                  c.save()
+                  c.rotate(rot, cx, cy)
+                  for (i in 0 until 10) c.drawArc(rect, i * 36f + 5f, 26f, false, p)
+                  c.restore()
+
+                  p.style = Paint.Style.FILL
+                  p.shader = RadialGradient(
+                      cx, cy, r * 0.36f,
+                      intArrayOf(0xFFFFFFFF.toInt(), withA(accent, 200), withA(accent, 0)),
+                      floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+                  )
+                  c.drawCircle(cx, cy, r * (0.30f + 0.05f * breathe), p)
+                  p.shader = null
+              }
+          }
+
+          class FloatingService : Service() {
+
+              private lateinit var wm: WindowManager
+              private var orb: OrbView? = null
+              private var panel: LinearLayout? = null
+              private var panelShown = false
+              private var speaker: Speaker? = null
+              private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+              private lateinit var log: TextView
+              private lateinit var scroll: ScrollView
+              private lateinit var field: EditText
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              override fun onCreate() {
+                  super.onCreate()
+                  startFg()
+                  if (!Settings.canDrawOverlays(this)) {
+                      stopSelf()
+                      return
+                  }
+                  wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                  speaker = Speaker(this)
+                  buildOrb()
+                  buildPanel()
+                  Flags.floating = true
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == "STOP") stopSelf()
+                  return START_NOT_STICKY
+              }
+
+              private fun startFg() {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  nm.createNotificationChannel(NotificationChannel("jarvis_float", "Jarvis yüzen buton", NotificationManager.IMPORTANCE_LOW))
+                  val stop = PendingIntent.getService(
+                      this, 2, Intent(this, FloatingService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE
+                  )
+                  val n = Notification.Builder(this, "jarvis_float")
+                      .setContentTitle("JARVIS yüzen buton açık")
+                      .setContentText("Kapatmak için dokun")
+                      .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                      .setContentIntent(stop)
+                      .build()
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      startForeground(2, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                  } else {
+                      startForeground(2, n)
+                  }
+              }
+
+              private fun buildOrb() {
+                  val v = OrbView(this)
+                  val size = dp(64)
+                  val lp = WindowManager.LayoutParams(
+                      size, size,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.START
+                      x = dp(12)
+                      y = dp(220)
+                  }
+                  var sx = 0
+                  var sy = 0
+                  var tx = 0f
+                  var ty = 0f
+                  var moved = false
+                  v.setOnTouchListener { _, e ->
+                      when (e.action) {
+                          MotionEvent.ACTION_DOWN -> {
+                              sx = lp.x
+                              sy = lp.y
+                              tx = e.rawX
+                              ty = e.rawY
+                              moved = false
+                          }
+                          MotionEvent.ACTION_MOVE -> {
+                              val dx = e.rawX - tx
+                              val dy = e.rawY - ty
+                              if (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6)) moved = true
+                              if (moved) {
+                                  lp.x = sx + dx.toInt()
+                                  lp.y = sy + dy.toInt()
+                                  wm.updateViewLayout(v, lp)
+                              }
+                          }
+                          MotionEvent.ACTION_UP -> if (!moved) togglePanel()
+                      }
+                      true
+                  }
+                  wm.addView(v, lp)
+                  orb = v
+              }
+
+              private fun buildPanel() {
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(14), dp(12), dp(14), dp(12))
+                      background = GradientDrawable().apply {
+                          setColor(0xF2071120.toInt())
+                          cornerRadius = dp(22).toFloat()
+                          setStroke(dp(1), 0x6600E5FF)
+                      }
+                  }
+
+                  val title = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  val name = TextView(this).apply {
+                      text = "J.A.R.V.I.S"
+                      setTextColor(0xFF00E5FF.toInt())
+                      textSize = 15f
+                      letterSpacing = 0.2f
+                      setTypeface(typeface, android.graphics.Typeface.BOLD)
+                  }
+                  title.addView(name, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                  val close = TextView(this).apply {
+                      text = "✕"
+                      setTextColor(0xFF8CA8BD.toInt())
+                      textSize = 18f
+                      setPadding(dp(10), 0, 0, 0)
+                      setOnClickListener { togglePanel() }
+                  }
+                  title.addView(close)
+                  box.addView(title)
+
+                  scroll = ScrollView(this)
+                  log = TextView(this).apply {
+                      text = "Merhaba! Örnek: \"Annem'e geliyorum yaz\"\n\n"
+                      setTextColor(0xFFEAFBFF.toInt())
+                      textSize = 14f
+                      setLineSpacing(0f, 1.15f)
+                  }
+                  scroll.addView(log)
+                  box.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(150)).apply {
+                      topMargin = dp(8)
+                      bottomMargin = dp(8)
+                  })
+
+                  val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  field = EditText(this).apply {
+                      hint = "Jarvis'e yaz..."
+                      setHintTextColor(0xFF8CA8BD.toInt())
+                      setTextColor(0xFFEAFBFF.toInt())
+                      textSize = 14f
+                      maxLines = 3
+                      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                      imeOptions = EditorInfo.IME_ACTION_SEND
+                      background = GradientDrawable().apply {
+                          setColor(0xFF0A192B.toInt())
+                          cornerRadius = dp(18).toFloat()
+                          setStroke(dp(1), 0x5500E5FF)
+                      }
+                      setPadding(dp(14), dp(8), dp(14), dp(8))
+                      setOnEditorActionListener { _, id, _ ->
+                          if (id == EditorInfo.IME_ACTION_SEND) {
+                              submit()
+                              true
+                          } else false
+                      }
+                  }
+                  row.addView(field, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                  val send = TextView(this).apply {
+                      text = "➤"
+                      setTextColor(0xFF030814.toInt())
+                      textSize = 18f
+                      gravity = Gravity.CENTER
+                      background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(0xFF00E5FF.toInt())
+                      }
+                      setOnClickListener { submit() }
+                  }
+                  row.addView(send, LinearLayout.LayoutParams(dp(44), dp(44)).apply { leftMargin = dp(8) })
+                  box.addView(row)
+                  panel = box
+              }
+
+              private fun togglePanel() {
+                  val p = panel ?: return
+                  if (panelShown) {
+                      try {
+                          wm.removeView(p)
+                      } catch (_: Exception) {
+                      }
+                      panelShown = false
+                  } else {
+                      val lp = WindowManager.LayoutParams(
+                          (resources.displayMetrics.widthPixels * 0.92f).toInt(),
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                          PixelFormat.TRANSLUCENT
+                      ).apply {
+                          gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                          y = dp(90)
+                          softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                              WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                      }
+                      wm.addView(p, lp)
+                      panelShown = true
+                      field.requestFocus()
+                  }
+              }
+
+              private fun append(s: String) {
+                  log.append(s + "\n\n")
+                  scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+              }
+
+              private fun submit() {
+                  val q = field.text.toString().trim()
+                  if (q.isEmpty()) return
+                  field.setText("")
+                  append("Sen: $q")
+                  scope.launch {
+                      val a = Brain.respond(this@FloatingService, q)
+                      Bus.state = JState.IDLE
+                      append("Jarvis: $a")
+                      speaker?.speak(a) { Bus.state = JState.IDLE }
+                      // Mesaj gönderilirken panel WhatsApp'ın önünde kalmasın.
+                      if (a.contains("gönderiyorum") || a.contains("hazırladım")) {
+                          if (panelShown) togglePanel()
+                      }
+                  }
+              }
+
+              override fun onDestroy() {
+                  scope.cancel()
+                  if (this::wm.isInitialized) {
+                      try {
+                          orb?.let { wm.removeView(it) }
+                      } catch (_: Exception) {
+                      }
+                      try {
+                          if (panelShown) panel?.let { wm.removeView(it) }
+                      } catch (_: Exception) {
+                      }
+                  }
+                  speaker?.shutdown()
+                  Flags.floating = false
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/JarvisService.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.PowerManager
+          import android.speech.SpeechRecognizer
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.SupervisorJob
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.launch
+
+          class JarvisService : Service() {
+
+              private val main = Handler(Looper.getMainLooper())
+              private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+              private lateinit var speaker: Speaker
+              private lateinit var ears: Ears
+              private var wakeLock: PowerManager.WakeLock? = null
+              private var commandMode = false
+              private var busy = false
+              private var alive = true
+
+              private val alwaysOn: Boolean
+                  get() = getSharedPreferences(PREF, 0).getBoolean("always", false)
+
+              private val wakes = listOf(
+                  "jarvis", "carvis", "harvis", "cervis", "javis",
+                  "jar vis", "car vis", "char vis"
+              )
+
+              private val stopPhrases = setOf(
+                  "tamam", "sus", "gorusuruz", "tesekkurler", "tesekkur ederim",
+                  "yeter", "hepsi bu kadar", "tamam sagol", "sagol"
+              )
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  try {
+                      val n = buildNotif()
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                      } else {
+                          startForeground(1, n)
+                      }
+                  } catch (e: Exception) {
+                      stopSelf()
+                      return
+                  }
+
+                  val pm = getSystemService(POWER_SERVICE) as PowerManager
+                  wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jarvis:wake").apply {
+                      if (alwaysOn) acquire() else acquire(10 * 60 * 1000L)
+                  }
+
+                  speaker = Speaker(this)
+                  ears = Ears(this, onPartial = { onPartial(it) }, onResult = { onFinal(it) }, onFail = { onFail(it) })
+                  Bus.serviceRunning = true
+                  if (alwaysOn) main.postDelayed({ listenWake() }, 1200)
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == "STOP") {
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  if (intent?.action == "LISTEN" && this::ears.isInitialized) {
+                      main.removeCallbacksAndMessages(null)
+                      main.postDelayed({
+                          busy = false
+                          handleWake("jarvis")
+                      }, 800)
+                  }
+                  return if (alwaysOn) START_STICKY else START_NOT_STICKY
+              }
+
+              override fun onDestroy() {
+                  alive = false
+                  main.removeCallbacksAndMessages(null)
+                  scope.cancel()
+                  if (this::ears.isInitialized) ears.destroy()
+                  if (this::speaker.isInitialized) speaker.shutdown()
+                  try {
+                      wakeLock?.release()
+                  } catch (_: Exception) {
+                  }
+                  Bus.serviceRunning = false
+                  Bus.state = JState.IDLE
+                  Bus.level = 0f
+                  super.onDestroy()
+              }
+
+              private fun idle() {
+                  if (alwaysOn) listenWake() else stopSelf()
+              }
+
+              private fun buildNotif(): Notification {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  nm.createNotificationChannel(NotificationChannel("jarvis", "Jarvis dinleme", NotificationManager.IMPORTANCE_LOW))
+                  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                  val stop = PendingIntent.getService(
+                      this, 1, Intent(this, JarvisService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE
+                  )
+                  return Notification.Builder(this, "jarvis")
+                      .setContentTitle("JARVIS dinliyor")
+                      .setContentText("Ses tuşuna 2 kez bas ya da \"Hey Jarvis\" de")
+                      .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                      .setContentIntent(open)
+                      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Durdur", stop)
+                      .build()
+              }
+
+              private fun listenWake() {
+                  if (!alive) return
+                  commandMode = false
+                  busy = false
+                  Bus.state = JState.WAKE
+                  Bus.level = 0f
+                  try {
+                      ears.start()
+                  } catch (e: Exception) {
+                      retry(1500)
+                  }
+              }
+
+              private fun listenCommand() {
+                  if (!alive) return
+                  commandMode = true
+                  busy = false
+                  Bus.state = JState.LISTENING
+                  try {
+                      ears.start()
+                  } catch (e: Exception) {
+                      retry(1500)
+                  }
+              }
+
+              private fun retry(ms: Long) {
+                  main.postDelayed({ if (commandMode) listenCommand() else listenWake() }, ms)
+              }
+
+              private fun hasWake(n: String) = wakes.any { n.contains(it) }
+
+              private fun onPartial(text: String) {
+                  if (!commandMode && !busy && hasWake(normalize(text))) handleWake(text)
+              }
+
+              private fun onFinal(text: String) {
+                  if (busy) return
+                  if (commandMode) {
+                      process(text)
+                  } else if (hasWake(normalize(text))) {
+                      handleWake(text)
+                  } else {
+                      retry(250)
+                  }
+              }
+
+              private fun onFail(error: Int) {
+                  if (busy || !alive) return
+                  if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                      stopSelf()
+                      return
+                  }
+                  val delay = when (error) {
+                      SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_NO_MATCH -> 250L
+                      SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1000L
+                      else -> 2000L
+                  }
+                  commandMode = false
+                  Bus.state = JState.WAKE
+                  main.postDelayed({ idle() }, delay)
+              }
+
+              private fun handleWake(text: String) {
+                  if (busy) return
+                  busy = true
+                  ears.cancel()
+                  val n = normalize(text)
+                  var cut = -1
+                  for (w in wakes) {
+                      val i = n.indexOf(w)
+                      if (i >= 0) {
+                          cut = i + w.length
+                          break
+                      }
+                  }
+                  val rest = if (cut in 0..text.length) text.substring(cut).trim() else ""
+                  if (rest.length >= 3 && normalize(rest).length >= 3) {
+                      process(rest)
+                  } else {
+                      Bus.state = JState.SPEAKING
+                      speaker.speak("Dinliyorum ${userName(this)}") { listenCommand() }
+                  }
+              }
+
+              private fun process(text: String) {
+                  busy = true
+                  ears.cancel()
+                  val n = normalize(text)
+
+                  if (n.contains("dinlemeyi kapat") || n.contains("uyku modu") || n.contains("kendini kapat")) {
+                      getSharedPreferences(PREF, 0).edit().putBoolean("always", false).apply()
+                      speaker.speak("Dinleme modu kapatılıyor. İyi günler ${userName(this)}.") { stopSelf() }
+                      return
+                  }
+
+                  // Onay beklerken "tamam" bir konuşmayı bitirme değil, onay sayılır.
+                  if (!Pending.active && (n in stopPhrases || n.startsWith("gorusuruz"))) {
+                      speaker.speak("Tamam, çağırdığında buradayım.") { idle() }
+                      return
+                  }
+
+                  scope.launch {
+                      val answer = Brain.respond(this@JarvisService, text)
+                      Bus.state = JState.SPEAKING
+                      speaker.speak(answer) { listenCommand() }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/MainActivity.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.Manifest
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.PowerManager
+          import android.provider.Settings
+          import android.widget.Toast
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.animation.Crossfade
+          import androidx.compose.animation.core.RepeatMode
+          import androidx.compose.animation.core.Spring
+          import androidx.compose.animation.core.animateFloat
+          import androidx.compose.animation.core.animateFloatAsState
+          import androidx.compose.animation.core.infiniteRepeatable
+          import androidx.compose.animation.core.rememberInfiniteTransition
+          import androidx.compose.animation.core.spring
+          import androidx.compose.animation.core.tween
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.border
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.horizontalScroll
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.PaddingValues
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
+          import androidx.compose.foundation.layout.aspectRatio
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.width
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.lazy.rememberLazyListState
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.text.KeyboardActions
+          import androidx.compose.foundation.text.KeyboardOptions
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.ButtonDefaults
+          import androidx.compose.material3.FilterChip
+          import androidx.compose.material3.HorizontalDivider
+          import androidx.compose.material3.IconButton
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.NavigationBar
+          import androidx.compose.material3.NavigationBarItem
+          import androidx.compose.material3.NavigationBarItemDefaults
+          import androidx.compose.material3.OutlinedTextField
+          import androidx.compose.material3.Scaffold
+          import androidx.compose.material3.Slider
+          import androidx.compose.material3.SliderDefaults
+          import androidx.compose.material3.Switch
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.TextButton
+          import androidx.compose.material3.darkColorScheme
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableFloatStateOf
+          import androidx.compose.runtime.mutableIntStateOf
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.rememberCoroutineScope
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.graphicsLayer
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.input.ImeAction
+          import androidx.compose.ui.text.input.PasswordVisualTransformation
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.core.content.ContextCompat
+          import kotlinx.coroutines.launch
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent { JarvisApp() }
+              }
+          }
+
+          private fun stateLabel(s: JState, service: Boolean): String = when (s) {
+              JState.IDLE -> if (service) "WAKE WORD ACTIVE" else "SYSTEM ONLINE"
+              JState.WAKE -> "SAY \"HEY JARVIS\""
+              JState.LISTENING -> "LISTENING..."
+              JState.THINKING -> "THINKING..."
+              JState.SPEAKING -> "SPEAKING..."
+          }
+
+          @Composable
+          fun JarvisApp() {
+              val context = LocalContext.current
+              val scope = rememberCoroutineScope()
+              val prefs = remember { context.getSharedPreferences(PREF, 0) }
+
+              var keyInput by remember { mutableStateOf(prefs.getString("api_key", "") ?: "") }
+              var tab by remember { mutableIntStateOf(0) }
+              var input by remember { mutableStateOf("") }
+              var busy by remember { mutableStateOf(false) }
+              var speakEnabled by remember { mutableStateOf(prefs.getBoolean("speak", true)) }
+              var rate by remember { mutableFloatStateOf(prefs.getFloat("rate_f", 0.96f)) }
+              var pitch by remember { mutableFloatStateOf(prefs.getFloat("pitch_f", 1.12f)) }
+              var nameInput by remember { mutableStateOf(prefs.getString("name", "efendim") ?: "efendim") }
+              var savedMessage by remember { mutableStateOf("") }
+              var pending by remember { mutableIntStateOf(0) }
+
+              val commands = remember { mutableStateListOf<LocalCommand>().apply { addAll(loadCommands(context)) } }
+              var trigger by remember { mutableStateOf("") }
+              var target by remember { mutableStateOf("") }
+              var isUrl by remember { mutableStateOf(true) }
+
+              val speaker = remember { Speaker(context) }
+              DisposableEffect(Unit) { onDispose { speaker.shutdown() } }
+
+              LaunchedEffect(Unit) {
+                  if (Bus.messages.isEmpty()) {
+                      Bus.messages.add(
+                          Chat(
+                              "Sistem çevrimiçi. Merhaba! Size nasıl yardımcı olabilirim? " +
+                                  "Araçlar bölümünden yüzen butonu açarsanız her ekranda bana yazabilirsiniz.",
+                              false
+                          )
+                      )
+                  }
+              }
+
+              fun send(raw: String) {
+                  val q = raw.trim()
+                  if (q.isBlank() || busy) return
+                  input = ""
+                  busy = true
+                  scope.launch {
+                      val answer = Brain.respond(context, q)
+                      busy = false
+                      Bus.state = JState.IDLE
+                      if (speakEnabled) speaker.speak(answer) { Bus.state = JState.IDLE }
+                  }
+              }
+
+              val ears = remember {
+                  Ears(
+                      context,
+                      onPartial = { input = it },
+                      onResult = { r ->
+                          input = ""
+                          send(r)
+                      },
+                      onFail = {
+                          Bus.state = JState.IDLE
+                          Bus.level = 0f
+                      }
+                  )
+              }
+              DisposableEffect(Unit) { onDispose { ears.destroy() } }
+
+              fun hasMic() = ContextCompat.checkSelfPermission(
+                  context, Manifest.permission.RECORD_AUDIO
+              ) == PackageManager.PERMISSION_GRANTED
+
+              fun startWakeService() {
+                  prefs.edit().putBoolean("always", true).apply()
+                  ContextCompat.startForegroundService(context, Intent(context, JarvisService::class.java))
+              }
+
+              fun startMic() {
+                  speaker.stop()
+                  Bus.state = JState.LISTENING
+                  ears.start()
+              }
+
+              val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+                  if (hasMic()) {
+                      if (pending == 1) startWakeService() else startMic()
+                  } else {
+                      Toast.makeText(context, "Mikrofon izni gerekli", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
+              fun requireMic(action: Int) {
+                  pending = action
+                  if (hasMic()) {
+                      if (action == 1) startWakeService() else startMic()
+                  } else {
+                      perms.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS))
+                  }
+              }
+
+              MaterialTheme(
+                  colorScheme = darkColorScheme(
+                      primary = CYAN, background = BG, surface = PANEL, onBackground = WHITE, onSurface = WHITE
+                  )
+              ) {
+                  Scaffold(
+                      containerColor = BG,
+                      bottomBar = {
+                          NavigationBar(containerColor = Color(0xFF071120)) {
+                              val navColors = NavigationBarItemDefaults.colors(
+                                  selectedIconColor = CYAN, selectedTextColor = CYAN,
+                                  indicatorColor = Color(0xFF0A2A3F),
+                                  unselectedIconColor = MUTED, unselectedTextColor = MUTED
+                              )
+                              NavigationBarItem(
+                                  selected = tab == 0, onClick = { tab = 0 },
+                                  icon = { Text("◉", fontSize = 22.sp) }, label = { Text("JARVIS") }, colors = navColors
+                              )
+                              NavigationBarItem(
+                                  selected = tab == 1, onClick = { tab = 1 },
+                                  icon = { Text("🛠", fontSize = 22.sp) }, label = { Text("ARAÇLAR") }, colors = navColors
+                              )
+                              NavigationBarItem(
+                                  selected = tab == 2, onClick = { tab = 2 },
+                                  icon = { Text("⚙", fontSize = 22.sp) }, label = { Text("AYARLAR") }, colors = navColors
+                              )
+                          }
+                      }
+                  ) { padding ->
+                      Box(Modifier.fillMaxSize().background(BG).padding(padding)) {
+                          BackgroundFx()
+
+                          Column(Modifier.fillMaxSize()) {
+                              val blink = rememberInfiniteTransition(label = "blink")
+                              val dot by blink.animateFloat(
+                                  0.3f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot"
+                              )
+
+                              Row(
+                                  Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+                                  horizontalArrangement = Arrangement.SpaceBetween,
+                                  verticalAlignment = Alignment.CenterVertically
+                              ) {
+                                  Column {
+                                      Text(
+                                          "J.A.R.V.I.S", color = CYAN, fontSize = 22.sp,
+                                          fontWeight = FontWeight.Bold, letterSpacing = 4.sp
+                                      )
+                                      Text("PERSONAL AI SYSTEM", color = MUTED, fontSize = 9.sp, letterSpacing = 2.sp)
+                                  }
+                                  Text(
+                                      "● " + stateLabel(Bus.state, Bus.serviceRunning),
+                                      color = CYAN.copy(alpha = dot), fontSize = 9.sp
+                                  )
+                              }
+
+                              Crossfade(targetState = tab, modifier = Modifier.weight(1f), label = "tabs") { t ->
+                                  when (t) {
+                                      0 -> Column(Modifier.fillMaxSize()) {
+                                          // Ark reaktörü ekranın tam ortasında
+                                          Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                              Reactor(
+                                                  Bus.state, Bus.level,
+                                                  Modifier.fillMaxWidth(0.9f).aspectRatio(1f)
+                                              )
+                                          }
+
+                                          WaveBars(
+                                              active = Bus.state == JState.LISTENING || Bus.state == JState.SPEAKING,
+                                              level = Bus.level,
+                                              color = if (Bus.state == JState.LISTENING) GREEN else CYAN
+                                          )
+
+                                          val listState = rememberLazyListState()
+                                          LaunchedEffect(Bus.messages.size, busy) {
+                                              val count = Bus.messages.size + (if (busy) 1 else 0)
+                                              if (count > 0) listState.animateScrollToItem(count - 1)
+                                          }
+                                          LazyColumn(
+                                              state = listState,
+                                              modifier = Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 12.dp),
+                                              verticalArrangement = Arrangement.spacedBy(8.dp)
+                                          ) {
+                                              items(Bus.messages) { message -> Bubble(message) }
+                                              if (busy) item { TypingDots() }
+                                          }
+
+                                          val suggestions = listOf(
+                                              "Saat kaç?", "Işığı aç", "Pil durumu",
+                                              "Telefonu optimize et", "Okula alarm kur", "5 dakika zamanlayıcı kur"
+                                          )
+                                          Row(
+                                              Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                  .padding(horizontal = 12.dp, vertical = 6.dp),
+                                              horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                          ) {
+                                              suggestions.forEach { s ->
+                                                  Box(
+                                                      Modifier.clip(RoundedCornerShape(50))
+                                                          .border(1.dp, CYAN.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                                          .clickable { send(s) }
+                                                          .padding(horizontal = 12.dp, vertical = 7.dp)
+                                                  ) { Text(s, color = CYAN, fontSize = 12.sp) }
+                                              }
+                                          }
+
+                                          val listening = Bus.state == JState.LISTENING
+                                          val micScale by animateFloatAsState(
+                                              if (listening) 1.18f else 1f,
+                                              spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                              label = "mic"
+                                          )
+                                          Row(
+                                              Modifier.fillMaxWidth().padding(10.dp),
+                                              verticalAlignment = Alignment.CenterVertically
+                                          ) {
+                                              IconButton(
+                                                  onClick = {
+                                                      if (Bus.serviceRunning) {
+                                                          Toast.makeText(
+                                                              context,
+                                                              "Dinleme modu açık: ses tuşuna 2 kez bas ya da 'Hey Jarvis' de",
+                                                              Toast.LENGTH_SHORT
+                                                          ).show()
+                                                      } else if (listening) {
+                                                          ears.cancel()
+                                                          Bus.state = JState.IDLE
+                                                      } else {
+                                                          requireMic(0)
+                                                      }
+                                                  },
+                                                  modifier = Modifier
+                                                      .graphicsLayer {
+                                                          scaleX = micScale
+                                                          scaleY = micScale
+                                                      }
+                                                      .background(if (listening) GREEN.copy(alpha = 0.35f) else PANEL, CircleShape)
+                                              ) { Text("🎙", fontSize = 20.sp) }
+
+                                              Spacer(Modifier.width(5.dp))
+
+                                              OutlinedTextField(
+                                                  value = input,
+                                                  onValueChange = { input = it },
+                                                  modifier = Modifier.weight(1f),
+                                                  placeholder = { Text("Jarvis'e yaz...", color = MUTED) },
+                                                  maxLines = 3,
+                                                  shape = RoundedCornerShape(18.dp),
+                                                  colors = fieldColors(),
+                                                  keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                  keyboardActions = KeyboardActions(onSend = { send(input) })
+                                              )
+
+                                              Spacer(Modifier.width(5.dp))
+
+                                              Button(
+                                                  enabled = !busy,
+                                                  onClick = { send(input) },
+                                                  contentPadding = PaddingValues(12.dp),
+                                                  colors = ButtonDefaults.buttonColors(containerColor = CYAN, contentColor = BG)
+                                              ) { Text("➤", fontSize = 20.sp) }
+                                          }
+                                      }
+
+                                      1 -> ToolsScreen()
+
+                                      else -> Column(
+                                          Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)
+                                      ) {
+                                          Text("SYSTEM SETTINGS", color = CYAN, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                                          Text("Groq yapay zekâ bağlantısı", color = MUTED, fontSize = 13.sp)
+                                          Spacer(Modifier.height(12.dp))
+
+                                          OutlinedTextField(
+                                              value = keyInput, onValueChange = { keyInput = it },
+                                              modifier = Modifier.fillMaxWidth(),
+                                              label = { Text("Groq API Key") }, placeholder = { Text("gsk_...") },
+                                              visualTransformation = PasswordVisualTransformation(),
+                                              singleLine = true, colors = fieldColors()
+                                          )
+                                          CyanButton("API ANAHTARINI KAYDET") {
+                                              prefs.edit().putString("api_key", keyInput.trim()).apply()
+                                              savedMessage = "API anahtarı kaydedildi."
+                                          }
+                                          if (savedMessage.isNotEmpty()) Text(savedMessage, color = CYAN)
+
+                                          HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                                          Text("SES TUŞU KISAYOLU", color = CYAN, fontWeight = FontWeight.Bold)
+                                          Text(
+                                              "Erişilebilirlik ayarlarında JARVIS AI servisini aç. Sonra ses kısma tuşuna 2 kez hızlı bas: " +
+                                                  "'Dinliyorum' der ve komutunu dinler. Bu servis WhatsApp'ta gönder tuşuna da otomatik basar. " +
+                                                  "Konuşmayı bitirmek için 'tamam' de.",
+                                              color = MUTED, fontSize = 11.sp
+                                          )
+                                          CyanButton("ERİŞİLEBİLİRLİK AYARLARINI AÇ") {
+                                              try {
+                                                  context.startActivity(
+                                                      Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                  )
+                                              } catch (_: Exception) {
+                                              }
+                                          }
+
+                                          HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                                          Text("SÜREKLİ 'HEY JARVIS' DİNLEMESİ (İSTEĞE BAĞLI)", color = CYAN, fontWeight = FontWeight.Bold)
+                                          Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                              Text("'Hey Jarvis' sürekli dinleme", color = WHITE, modifier = Modifier.weight(1f))
+                                              Switch(
+                                                  checked = Bus.serviceRunning,
+                                                  onCheckedChange = { on ->
+                                                      if (on) {
+                                                          requireMic(1)
+                                                      } else {
+                                                          prefs.edit().putBoolean("always", false).apply()
+                                                          context.stopService(Intent(context, JarvisService::class.java))
+                                                      }
+                                                  }
+                                              )
+                                          }
+                                          Text(
+                                              "Kapalıyken pil harcamaz. Kilitliyken çalışması için aşağıdaki izinleri de ver.",
+                                              color = MUTED, fontSize = 11.sp
+                                          )
+                                          CyanButton("PİL OPTİMİZASYONUNU KAPAT") {
+                                              try {
+                                                  val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                                                  if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                                                      context.startActivity(
+                                                          Intent(
+                                                              Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                                              Uri.parse("package:" + context.packageName)
+                                                          )
+                                                      )
+                                                  } else {
+                                                      Toast.makeText(context, "Zaten kapalı", Toast.LENGTH_SHORT).show()
+                                                  }
+                                              } catch (_: Exception) {
+                                              }
+                                          }
+                                          CyanButton("MİKROFON İZNİ VER") { requireMic(2) }
+
+                                          HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                                          Text("VOICE SETTINGS", color = CYAN, fontWeight = FontWeight.Bold)
+                                          Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                              Text("Yazılı cevapları seslendir", color = WHITE, modifier = Modifier.weight(1f))
+                                              Switch(
+                                                  checked = speakEnabled,
+                                                  onCheckedChange = {
+                                                      speakEnabled = it
+                                                      prefs.edit().putBoolean("speak", it).apply()
+                                                  }
+                                              )
+                                          }
+
+                                          Text("Konuşma hızı: " + "%.2f".format(rate), color = WHITE, fontSize = 13.sp)
+                                          Slider(
+                                              value = rate, onValueChange = { rate = it },
+                                              onValueChangeFinished = { prefs.edit().putFloat("rate_f", rate).apply() },
+                                              valueRange = 0.5f..2f,
+                                              colors = SliderDefaults.colors(thumbColor = CYAN, activeTrackColor = CYAN)
+                                          )
+                                          Text("Ses tonu: " + "%.2f".format(pitch), color = WHITE, fontSize = 13.sp)
+                                          Slider(
+                                              value = pitch, onValueChange = { pitch = it },
+                                              onValueChangeFinished = { prefs.edit().putFloat("pitch_f", pitch).apply() },
+                                              valueRange = 0.5f..1.5f,
+                                              colors = SliderDefaults.colors(thumbColor = CYAN, activeTrackColor = CYAN)
+                                          )
+
+                                          OutlinedTextField(
+                                              value = nameInput,
+                                              onValueChange = {
+                                                  nameInput = it
+                                                  prefs.edit().putString("name", it).apply()
+                                              },
+                                              modifier = Modifier.fillMaxWidth(),
+                                              label = { Text("Hitap (efendim, patron...)") },
+                                              singleLine = true, colors = fieldColors()
+                                          )
+
+                                          CyanButton("SESİ TEST ET") {
+                                              speaker.speak("Sistem çevrimiçi. Dinliyorum " + userName(context))
+                                          }
+                                          VoicePicker(speaker)
+                                          CyanButton("SOHBETİ TEMİZLE") {
+                                              Bus.messages.clear()
+                                              Bus.history.clear()
+                                          }
+
+                                          HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                                          Text("LOCAL COMMANDS", color = CYAN, fontWeight = FontWeight.Bold)
+                                          Text(
+                                              "Örnek: 'whatsapp', 'youtube aç', 'chrome'da ... arat'. Ayrıca 'saat kaç', 'ışığı aç/kapat', 'pil durumu' hazır komutlardır.",
+                                              color = MUTED, fontSize = 11.sp
+                                          )
+                                          OutlinedTextField(
+                                              value = trigger, onValueChange = { trigger = it },
+                                              modifier = Modifier.fillMaxWidth(),
+                                              label = { Text("Tetikleyici kelime") }, colors = fieldColors()
+                                          )
+                                          Row {
+                                              FilterChip(selected = isUrl, onClick = { isUrl = true }, label = { Text("Web URL") })
+                                              Spacer(Modifier.width(8.dp))
+                                              FilterChip(selected = !isUrl, onClick = { isUrl = false }, label = { Text("Paket adı") })
+                                          }
+                                          OutlinedTextField(
+                                              value = target, onValueChange = { target = it },
+                                              modifier = Modifier.fillMaxWidth(),
+                                              label = { Text("Hedef") }, colors = fieldColors()
+                                          )
+                                          CyanButton("KOMUT EKLE") {
+                                              if (trigger.isNotBlank() && target.isNotBlank()) {
+                                                  commands.add(LocalCommand(trigger.trim(), target.trim(), isUrl))
+                                                  saveCommands(context, commands)
+                                                  trigger = ""
+                                                  target = ""
+                                              }
+                                          }
+                                          commands.toList().forEach { command ->
+                                              Row(
+                                                  Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                                                  verticalAlignment = Alignment.CenterVertically
+                                              ) {
+                                                  Column(Modifier.weight(1f)) {
+                                                      Text(command.trigger, color = CYAN)
+                                                      Text(command.target, color = MUTED, fontSize = 10.sp)
+                                                  }
+                                                  TextButton(onClick = {
+                                                      commands.remove(command)
+                                                      saveCommands(context, commands)
+                                                  }) { Text("SİL", color = Color.Red) }
+                                              }
+                                          }
+                                          Spacer(Modifier.height(30.dp))
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/Tools.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.provider.Settings
+          import android.widget.Toast
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.HorizontalDivider
+          import androidx.compose.material3.OutlinedTextField
+          import androidx.compose.material3.Switch
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.TextButton
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.rememberCoroutineScope
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.core.content.ContextCompat
+          import kotlinx.coroutines.launch
+
+          @Composable
+          fun ToolsScreen() {
+              val ctx = LocalContext.current
+              val scope = rememberCoroutineScope()
+              val contacts = remember { mutableStateListOf<Contact>().apply { addAll(loadContacts(ctx)) } }
+              var name by remember { mutableStateOf("") }
+              var number by remember { mutableStateOf("") }
+              var result by remember { mutableStateOf("") }
+              var working by remember { mutableStateOf(false) }
+
+              Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+                  Text("ARAÇLAR", color = CYAN, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                  Text("Yüzen buton, kişiler ve telefon bakımı", color = MUTED, fontSize = 13.sp)
+                  Spacer(Modifier.height(14.dp))
+
+                  // ---- Yüzen buton ----
+                  Text("YÜZEN BUTON", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "Ekranda her uygulamanın üstünde duran küçük ark reaktörü. Sürükleyerek yerini değiştirir, " +
+                          "dokununca mini sohbet açılır. Örnek: \"Annem'e geliyorum yaz\".",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                      Text("Yüzen butonu göster", color = WHITE, modifier = Modifier.weight(1f))
+                      Switch(
+                          checked = Flags.floating,
+                          onCheckedChange = { on ->
+                              if (on) {
+                                  if (Settings.canDrawOverlays(ctx)) {
+                                      ContextCompat.startForegroundService(ctx, Intent(ctx, FloatingService::class.java))
+                                  } else {
+                                      Toast.makeText(ctx, "Önce 'diğer uygulamaların üzerinde göster' iznini ver", Toast.LENGTH_LONG).show()
+                                      try {
+                                          ctx.startActivity(
+                                              Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))
+                                                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                          )
+                                      } catch (_: Exception) {
+                                      }
+                                  }
+                              } else {
+                                  ctx.stopService(Intent(ctx, FloatingService::class.java))
+                              }
+                          }
+                      )
+                  }
+                  CyanButton("EKRAN ÜSTÜ GÖSTERME İZNİ") {
+                      try {
+                          ctx.startActivity(
+                              Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))
+                                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                          )
+                      } catch (_: Exception) {
+                      }
+                  }
+
+                  HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                  // ---- Kişiler ----
+                  Text("WHATSAPP KİŞİLERİ", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "Kişiyi buraya ekle, sonra \"Ahmet'e akşam görüşürüz yaz\" de. Jarvis önce sana okur, " +
+                          "\"evet\" dersen gönderir.",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  OutlinedTextField(
+                      value = name, onValueChange = { name = it },
+                      modifier = Modifier.fillMaxWidth(), label = { Text("İsim (Annem, Ahmet...)") },
+                      singleLine = true, colors = fieldColors()
+                  )
+                  OutlinedTextField(
+                      value = number, onValueChange = { number = it },
+                      modifier = Modifier.fillMaxWidth(), label = { Text("Numara (05xx...)") },
+                      singleLine = true, colors = fieldColors()
+                  )
+                  CyanButton("KİŞİ EKLE") {
+                      if (name.isNotBlank() && number.filter { it.isDigit() }.length >= 10) {
+                          contacts.add(Contact(name.trim(), number.trim()))
+                          saveContacts(ctx, contacts)
+                          name = ""
+                          number = ""
+                      } else {
+                          Toast.makeText(ctx, "İsim ve geçerli numara gir", Toast.LENGTH_SHORT).show()
+                      }
+                  }
+                  contacts.toList().forEach { c ->
+                      Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                          Column(Modifier.weight(1f)) {
+                              Text(c.name, color = CYAN)
+                              Text(c.number, color = MUTED, fontSize = 11.sp)
+                          }
+                          TextButton(onClick = {
+                              contacts.remove(c)
+                              saveContacts(ctx, contacts)
+                          }) { Text("SİL", color = Color.Red) }
+                      }
+                  }
+
+                  HorizontalDivider(Modifier.padding(vertical = 16.dp), color = CYAN.copy(alpha = 0.3f))
+
+                  // ---- Optimizasyon ----
+                  Text("TELEFON BAKIMI", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "Arka plandaki uygulamaları temizler, boş belleği ölçer. Sesli: \"telefonu optimize et\".",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  CyanButton(if (working) "ÇALIŞIYOR..." else "TELEFONU OPTİMİZE ET") {
+                      if (!working) {
+                          working = true
+                          scope.launch {
+                              result = Actions.runOptimize(ctx)
+                              working = false
+                          }
+                      }
+                  }
+                  if (result.isNotEmpty()) Text(result, color = WHITE, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                  CyanButton("AYAR DEĞİŞTİRME İZNİ (EKRAN SÜRESİ)") {
+                      try {
+                          ctx.startActivity(
+                              Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + ctx.packageName))
+                                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                          )
+                      } catch (_: Exception) {
+                      }
+                  }
+                  Spacer(Modifier.height(30.dp))
+              }
+          }
+
+          @Composable
+          fun VoicePicker(speaker: Speaker) {
+              val ctx = LocalContext.current
+              val prefs = remember { ctx.getSharedPreferences(PREF, 0) }
+              var list by remember { mutableStateOf(speaker.turkishVoices()) }
+              var cur by remember { mutableStateOf(prefs.getString("voice_name", "") ?: "") }
+
+              Column(Modifier.fillMaxWidth()) {
+                  Text("SES SEÇ (DOKUN VE DİNLE)", color = CYAN, fontWeight = FontWeight.Bold)
+                  Text(
+                      "Kadın sesi için genelde 'afs' ya da 'female' geçen Türkçe sesler uygundur. " +
+                          "Liste boşsa Google Metin Okuma ayarlarından Türkçe sesi indir, sonra yenile.",
+                      color = MUTED, fontSize = 11.sp
+                  )
+                  CyanButton("SES LİSTESİNİ YENİLE") { list = speaker.turkishVoices() }
+                  list.forEach { v ->
+                      val selected = cur == v.name
+                      Row(
+                          Modifier.fillMaxWidth().clickable {
+                              if (speaker.useVoice(v.name)) {
+                                  cur = v.name
+                                  prefs.edit().putString("voice_name", v.name).apply()
+                                  speaker.speak("Merhaba, ben Jarvis. Bu sesi beğendin mi?")
+                              }
+                          }.padding(vertical = 9.dp),
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Text(
+                              (if (selected) "◉ " else "○ ") + v.name + if (v.isNetworkConnectionRequired) "  (online)" else "",
+                              color = if (selected) CYAN else WHITE, fontSize = 13.sp
+                          )
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/Ui.kt <<'EOF'
+          package com.example.jarvis
+
+          import androidx.compose.animation.animateColorAsState
+          import androidx.compose.animation.core.FastOutSlowInEasing
+          import androidx.compose.animation.core.LinearEasing
+          import androidx.compose.animation.core.RepeatMode
+          import androidx.compose.animation.core.animateFloat
+          import androidx.compose.animation.core.animateFloatAsState
+          import androidx.compose.animation.core.infiniteRepeatable
+          import androidx.compose.animation.core.rememberInfiniteTransition
+          import androidx.compose.animation.core.tween
+          import androidx.compose.foundation.Canvas
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.border
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.layout.widthIn
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.ButtonDefaults
+          import androidx.compose.material3.OutlinedTextFieldDefaults
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableIntStateOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.geometry.Offset
+          import androidx.compose.ui.geometry.Size
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.Path
+          import androidx.compose.ui.graphics.StrokeCap
+          import androidx.compose.ui.graphics.graphicsLayer
+          import androidx.compose.ui.graphics.drawscope.Stroke
+          import androidx.compose.ui.graphics.drawscope.rotate
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import kotlinx.coroutines.delay
+          import kotlin.math.PI
+          import kotlin.math.abs
+          import kotlin.math.cos
+          import kotlin.math.sin
+
+          val BG = Color(0xFF030814)
+          val PANEL = Color(0xFF0A192B)
+          val CYAN = Color(0xFF00E5FF)
+          val BLUE = Color(0xFF087BFF)
+          val WHITE = Color(0xFFEAFBFF)
+          val MUTED = Color(0xFF8CA8BD)
+          val ORANGE = Color(0xFFFFA726)
+          val GREEN = Color(0xFF00E676)
+          val PURPLE = Color(0xFFB388FF)
+
+          @Composable
+          fun fieldColors() = OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = CYAN,
+              unfocusedBorderColor = BLUE.copy(alpha = 0.6f),
+              focusedTextColor = WHITE,
+              unfocusedTextColor = WHITE,
+              focusedLabelColor = CYAN,
+              unfocusedLabelColor = MUTED,
+              cursorColor = CYAN
+          )
+
+          @Composable
+          fun CyanButton(text: String, onClick: () -> Unit) {
+              Button(
+                  onClick = onClick,
+                  modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                  shape = RoundedCornerShape(14.dp),
+                  colors = ButtonDefaults.buttonColors(containerColor = CYAN, contentColor = BG)
+              ) {
+                  Text(text, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+              }
+          }
+
+          @Composable
+          fun BackgroundFx() {
+              val t = rememberInfiniteTransition(label = "bg")
+              val p by t.animateFloat(
+                  0f, 1f,
+                  infiniteRepeatable(tween(36000, easing = LinearEasing)),
+                  label = "p"
+              )
+              Canvas(Modifier.fillMaxSize()) {
+                  val step = 52.dp.toPx()
+                  var x = 0f
+                  while (x < size.width) {
+                      drawLine(CYAN.copy(alpha = 0.03f), Offset(x, 0f), Offset(x, size.height))
+                      x += step
+                  }
+                  var y = p * step
+                  while (y < size.height) {
+                      drawLine(CYAN.copy(alpha = 0.03f), Offset(0f, y), Offset(size.width, y))
+                      y += step
+                  }
+                  for (i in 0 until 26) {
+                      val sx = ((i * 37) % 100) / 100f
+                      val sy = ((i * 61) % 100) / 100f
+                      val k = 1 + (i % 3)
+                      val yy = (((sy - p * k) % 1f) + 1f) % 1f
+                      val xx = sx + sin(p * 4f * PI.toFloat() + i) * 0.02f
+                      drawCircle(
+                          CYAN.copy(alpha = 0.18f),
+                          radius = (1.2f + (i % 3) * 0.7f).dp.toPx(),
+                          center = Offset(xx * size.width, yy * size.height)
+                      )
+                  }
+              }
+          }
+
+          /** Ark reaktörü: 10 bobinli halka, dönen cetvel, tarama yayı ve ışıyan çekirdek. */
+          @Composable
+          fun Reactor(state: JState, level: Float, modifier: Modifier = Modifier) {
+              val tr = rememberInfiniteTransition(label = "reactor")
+              val spinSlow by tr.animateFloat(
+                  0f, 360f, infiniteRepeatable(tween(46000, easing = LinearEasing)), label = "spinSlow"
+              )
+              val spinMid by tr.animateFloat(
+                  360f, 0f, infiniteRepeatable(tween(20000, easing = LinearEasing)), label = "spinMid"
+              )
+              val sweep by tr.animateFloat(
+                  0f, 360f, infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "sweep"
+              )
+              val breathe by tr.animateFloat(
+                  0f, 1f,
+                  infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                  label = "breathe"
+              )
+              val phase by tr.animateFloat(
+                  0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1500, easing = LinearEasing)), label = "phase"
+              )
+              val color by animateColorAsState(
+                  when (state) {
+                      JState.THINKING -> ORANGE
+                      JState.LISTENING -> GREEN
+                      JState.WAKE -> PURPLE
+                      else -> CYAN
+                  },
+                  tween(600), label = "reactorColor"
+              )
+              val lv by animateFloatAsState(level.coerceIn(0f, 1f), tween(120), label = "reactorLevel")
+              val speaking = state == JState.LISTENING || state == JState.SPEAKING
+              val thinking = state == JState.THINKING
+              val energy = if (speaking) lv else 0f
+
+              Canvas(modifier) {
+                  val r = size.minDimension / 2f
+                  val c = center
+                  val hair = 1.dp.toPx()
+
+                  fun arc(rad: Float, start: Float, sw: Float, col: Color, w: Float, cap: StrokeCap = StrokeCap.Butt) {
+                      drawArc(
+                          col, start, sw, false,
+                          Offset(c.x - rad, c.y - rad), Size(rad * 2f, rad * 2f),
+                          style = Stroke(w, cap = cap)
+                      )
+                  }
+
+                  // Dış parıltı
+                  drawCircle(
+                      Brush.radialGradient(
+                          listOf(color.copy(alpha = 0.10f + 0.12f * breathe + 0.22f * energy), Color.Transparent),
+                          center = c, radius = r
+                      ),
+                      radius = r, center = c
+                  )
+
+                  // Koyu gövde ve metalik çerçeve
+                  drawCircle(Color(0xFF061420), r * 0.93f, c)
+                  drawCircle(
+                      Brush.sweepGradient(
+                          listOf(
+                              color.copy(alpha = 0.95f), color.copy(alpha = 0.15f), color.copy(alpha = 0.75f),
+                              color.copy(alpha = 0.15f), color.copy(alpha = 0.95f)
+                          ),
+                          c
+                      ),
+                      r * 0.965f, c, style = Stroke(3.dp.toPx())
+                  )
+
+                  // Yavaş dönen cetvel çizgileri
+                  rotate(spinSlow) {
+                      for (i in 0 until 90) {
+                          val a = Math.toRadians(i * 4.0)
+                          val major = i % 9 == 0
+                          val len = if (major) 9.dp.toPx() else 4.dp.toPx()
+                          val rr = r * 0.90f
+                          drawLine(
+                              color.copy(alpha = if (major) 0.85f else 0.28f),
+                              Offset(c.x + cos(a).toFloat() * rr, c.y + sin(a).toFloat() * rr),
+                              Offset(c.x + cos(a).toFloat() * (rr - len), c.y + sin(a).toFloat() * (rr - len)),
+                              strokeWidth = if (major) 1.6.dp.toPx() else hair
+                          )
+                      }
+                  }
+
+                  // Ters yönde dönen üç ince yay
+                  rotate(spinMid) {
+                      for (i in 0 until 3) {
+                          arc(r * 0.80f, i * 120f + 10f, 70f, color.copy(alpha = 0.8f), 2.5.dp.toPx(), StrokeCap.Round)
+                      }
+                  }
+
+                  // 10 bobinli ana halka
+                  arc(r * 0.60f, 0f, 360f, Color(0xFF0A2234), r * 0.25f)
+                  for (i in 0 until 10) {
+                      val shimmer = 0.8f + 0.2f * sin(phase + i * 0.7f)
+                      val a = ((0.5f + 0.25f * breathe + 0.3f * energy) * shimmer).coerceIn(0f, 1f)
+                      val st = i * 36f + 5.5f
+                      arc(r * 0.60f, st, 25f, color.copy(alpha = a * 0.28f), r * 0.24f)
+                      arc(r * 0.60f, st, 25f, color.copy(alpha = a), r * 0.15f)
+                  }
+                  drawCircle(color.copy(alpha = 0.5f), r * 0.72f, c, style = Stroke(hair))
+                  drawCircle(color.copy(alpha = 0.5f), r * 0.48f, c, style = Stroke(hair))
+
+                  // Tarama yayı
+                  rotate(sweep) {
+                      arc(r * 0.42f, 0f, if (thinking) 120f else 60f, color, 3.dp.toPx(), StrokeCap.Round)
+                      arc(r * 0.42f, 180f, 25f, color.copy(alpha = 0.35f), 2.dp.toPx(), StrokeCap.Round)
+                  }
+
+                  // Konuşurken ses dalgası
+                  if (speaking) {
+                      for (i in 0 until 60) {
+                          val a = Math.toRadians(i * 6.0)
+                          val len = (2f + 9f * lv * (0.3f + 0.7f * abs(sin(phase + i * 0.5f)))).dp.toPx()
+                          val rr = r * 0.335f
+                          drawLine(
+                              color.copy(alpha = 0.9f),
+                              Offset(c.x + cos(a).toFloat() * rr, c.y + sin(a).toFloat() * rr),
+                              Offset(c.x + cos(a).toFloat() * (rr + len), c.y + sin(a).toFloat() * (rr + len)),
+                              strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round
+                          )
+                      }
+                  }
+
+                  // Çekirdek
+                  drawCircle(color.copy(alpha = 0.6f), r * 0.30f, c, style = Stroke(1.5.dp.toPx()))
+                  drawCircle(
+                      Brush.radialGradient(
+                          listOf(Color.White, color.copy(alpha = 0.85f), color.copy(alpha = 0.15f), Color.Transparent),
+                          center = c, radius = r * 0.30f
+                      ),
+                      radius = r * 0.28f * (1f + 0.05f * breathe + 0.12f * energy), center = c
+                  )
+                  val tri = Path().apply {
+                      for (k in 0 until 3) {
+                          val a = Math.toRadians(k * 120.0 - 90.0)
+                          val x = c.x + cos(a).toFloat() * r * 0.17f
+                          val y = c.y + sin(a).toFloat() * r * 0.17f
+                          if (k == 0) moveTo(x, y) else lineTo(x, y)
+                      }
+                      close()
+                  }
+                  rotate(-spinSlow * 2f) {
+                      drawPath(tri, Color.White.copy(alpha = 0.85f), style = Stroke(1.6.dp.toPx()))
+                  }
+                  drawCircle(Color.White, 2.5.dp.toPx(), c)
+              }
+          }
+
+          @Composable
+          fun WaveBars(active: Boolean, level: Float, color: Color) {
+              val t = rememberInfiniteTransition(label = "wave")
+              val ph by t.animateFloat(
+                  0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "ph"
+              )
+              val lv by animateFloatAsState(level, tween(100), label = "wlv")
+              Canvas(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 40.dp)) {
+                  val n = 36
+                  val gap = size.width / n
+                  val cy = size.height / 2f
+                  for (i in 0 until n) {
+                      val amp = if (active) (0.2f + 0.8f * abs(sin(ph + i * 0.45f))) * (0.4f + 0.6f * lv) else 0.07f
+                      val h = size.height * amp
+                      val x = gap * i + gap / 2f
+                      drawLine(
+                          color.copy(alpha = if (active) 0.9f else 0.25f),
+                          Offset(x, cy - h / 2f), Offset(x, cy + h / 2f),
+                          strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun TypingDots() {
+              val tr = rememberInfiniteTransition(label = "dots")
+              val ph by tr.animateFloat(
+                  0f, (2 * PI).toFloat(), infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "dph"
+              )
+              Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                  for (i in 0 until 3) {
+                      val a = 0.3f + 0.7f * abs(sin(ph - i * 0.8f))
+                      Box(
+                          Modifier
+                              .size(8.dp)
+                              .graphicsLayer {
+                                  alpha = a
+                                  scaleX = 0.6f + 0.5f * a
+                                  scaleY = 0.6f + 0.5f * a
+                              }
+                              .background(CYAN, CircleShape)
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun Bubble(chat: Chat) {
+              val animate = remember(chat) {
+                  val a = !chat.user && !chat.played
+                  chat.played = true
+                  a
+              }
+              var shown by remember { mutableIntStateOf(if (animate) 0 else chat.text.length) }
+              LaunchedEffect(chat) {
+                  while (shown < chat.text.length) {
+                      delay(16)
+                      shown++
+                  }
+              }
+              var vis by remember { mutableStateOf(false) }
+              LaunchedEffect(Unit) { vis = true }
+              val a by animateFloatAsState(if (vis) 1f else 0f, tween(500, easing = FastOutSlowInEasing), label = "bubble")
+
+              Row(
+                  Modifier.fillMaxWidth().graphicsLayer {
+                      alpha = a
+                      translationY = (1f - a) * 36f
+                  },
+                  horizontalArrangement = if (chat.user) Arrangement.End else Arrangement.Start
+              ) {
+                  Column(
+                      Modifier
+                          .widthIn(max = 300.dp)
+                          .background(
+                              if (chat.user) Color(0xFF073B54) else PANEL.copy(alpha = 0.92f),
+                              RoundedCornerShape(16.dp)
+                          )
+                          .border(1.dp, CYAN.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+                          .padding(horizontal = 13.dp, vertical = 10.dp)
+                  ) {
+                      Text(
+                          if (chat.user) "SEN" else "JARVIS",
+                          color = CYAN, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp
+                      )
+                      Spacer(Modifier.height(4.dp))
+                      Text(chat.text.take(shown), color = WHITE, fontSize = 14.sp, lineHeight = 20.sp)
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/Voice.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.speech.RecognitionListener
+          import android.speech.RecognizerIntent
+          import android.speech.SpeechRecognizer
+          import android.speech.tts.TextToSpeech
+          import android.speech.tts.UtteranceProgressListener
+          import android.speech.tts.Voice
+
+          class Speaker(private val context: Context) {
+              private val main = Handler(Looper.getMainLooper())
+              private var tts: TextToSpeech? = null
+              private var ready = false
+
+              init {
+                  tts = TextToSpeech(context) { result ->
+                      if (result == TextToSpeech.SUCCESS) {
+                          tts?.language = TR
+                          try {
+                              val all = turkishVoices()
+                              val saved = context.getSharedPreferences(PREF, 0).getString("voice_name", "") ?: ""
+                              val pick = all.firstOrNull { it.name == saved } ?: pickFemale(all)
+                              if (pick != null) tts?.voice = pick
+                          } catch (_: Exception) {
+                          }
+                          ready = true
+                      }
+                  }
+              }
+
+              private fun pickFemale(vs: List<Voice>): Voice? {
+                  fun score(v: Voice): Int {
+                      val n = v.name.lowercase()
+                      var s = v.quality
+                      if (n.contains("tmc") || (n.contains("male") && !n.contains("female"))) s -= 1000
+                      if (n.contains("female")) s += 200
+                      if (n.contains("afs")) s += 150
+                      if (n.contains("ama")) s += 60
+                      return s
+                  }
+                  return vs.maxByOrNull { score(it) }
+              }
+
+              fun turkishVoices(): List<Voice> {
+                  return try {
+                      (tts?.voices ?: emptySet()).filter { it.locale.language == "tr" }.sortedBy { it.name }
+                  } catch (_: Exception) {
+                      emptyList()
+                  }
+              }
+
+              fun useVoice(name: String): Boolean {
+                  val vv = turkishVoices().firstOrNull { it.name == name } ?: return false
+                  tts?.voice = vv
+                  return true
+              }
+
+              fun speak(text: String, finished: (() -> Unit)? = null) {
+                  val engine = tts
+                  if (!ready || engine == null) {
+                      finished?.let { main.post(it) }
+                      return
+                  }
+                  val p = context.getSharedPreferences(PREF, 0)
+                  engine.setSpeechRate(p.getFloat("rate_f", 0.96f))
+                  engine.setPitch(p.getFloat("pitch_f", 1.12f))
+
+                  // Cümle cümle okumak tonlamayı doğallaştırır, aralara kısa nefes payı konur.
+                  val parts = text.replace(Regex("[*#_`~>]"), "").take(3500)
+                      .split(Regex("(?<=[.!?…])\\s+"))
+                      .map { it.trim() }
+                      .filter { it.isNotEmpty() }
+                  if (parts.isEmpty()) {
+                      finished?.let { main.post(it) }
+                      return
+                  }
+
+                  val base = "u" + System.nanoTime()
+                  val lastId = base + "_last"
+
+                  engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                      override fun onStart(utteranceId: String?) {
+                          main.post {
+                              Bus.state = JState.SPEAKING
+                              Bus.level = 0.7f
+                          }
+                      }
+
+                      override fun onDone(utteranceId: String?) {
+                          if (utteranceId == lastId) {
+                              main.post {
+                                  Bus.level = 0f
+                                  finished?.invoke()
+                              }
+                          }
+                      }
+
+                      @Deprecated("Deprecated in Java")
+                      override fun onError(utteranceId: String?) {
+                          if (utteranceId == lastId) {
+                              main.post {
+                                  Bus.level = 0f
+                                  finished?.invoke()
+                              }
+                          }
+                      }
+                  })
+
+                  parts.forEachIndexed { i, s ->
+                      val last = i == parts.lastIndex
+                      engine.speak(
+                          s,
+                          if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                          null,
+                          if (last) lastId else base + "_" + i
+                      )
+                      if (!last) engine.playSilentUtterance(140, TextToSpeech.QUEUE_ADD, base + "_s" + i)
+                  }
+              }
+
+              fun stop() {
+                  tts?.stop()
+              }
+
+              fun shutdown() {
+                  tts?.stop()
+                  tts?.shutdown()
+                  tts = null
+              }
+          }
+
+          class Ears(
+              private val context: Context,
+              private val onPartial: (String) -> Unit,
+              private val onResult: (String) -> Unit,
+              private val onFail: (Int) -> Unit
+          ) {
+              private var rec: SpeechRecognizer? = null
+
+              fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
+
+              fun start() {
+                  if (rec == null) {
+                      rec = SpeechRecognizer.createSpeechRecognizer(context)
+                      rec?.setRecognitionListener(object : RecognitionListener {
+                          override fun onReadyForSpeech(params: Bundle?) {}
+                          override fun onBeginningOfSpeech() {}
+                          override fun onRmsChanged(rmsdB: Float) {
+                              Bus.level = rmsdB.coerceIn(0f, 10f) / 10f
+                          }
+                          override fun onBufferReceived(buffer: ByteArray?) {}
+                          override fun onEndOfSpeech() {}
+                          override fun onError(error: Int) {
+                              Bus.level = 0f
+                              onFail(error)
+                          }
+                          override fun onResults(results: Bundle?) {
+                              Bus.level = 0f
+                              val r = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                              if (r.isNullOrBlank()) onFail(SpeechRecognizer.ERROR_NO_MATCH) else onResult(r)
+                          }
+                          override fun onPartialResults(partialResults: Bundle?) {
+                              val r = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                              if (!r.isNullOrBlank()) onPartial(r)
+                          }
+                          override fun onEvent(eventType: Int, params: Bundle?) {}
+                      })
+                  }
+                  val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                      putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                      putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+                      putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                      putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                  }
+                  rec?.startListening(i)
+              }
+
+              fun cancel() {
+                  try {
+                      rec?.cancel()
+                  } catch (_: Exception) {
+                  }
+              }
+
+              fun destroy() {
+                  try {
+                      rec?.destroy()
+                  } catch (_: Exception) {
+                  }
+                  rec = null
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/jarvis/VolumeKeyService.kt <<'EOF'
+          package com.example.jarvis
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.AccessibilityServiceInfo
+          import android.content.Intent
+          import android.os.Handler
+          import android.os.Looper
+          import android.os.SystemClock
+          import android.view.KeyEvent
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+          import androidx.core.content.ContextCompat
+
+          class VolumeKeyService : AccessibilityService() {
+              private var last = 0L
+              private val main = Handler(Looper.getMainLooper())
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  serviceInfo = serviceInfo.apply {
+                      flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                          AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                  }
+              }
+
+              override fun onKeyEvent(e: KeyEvent): Boolean {
+                  if (e.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
+                      e.action == KeyEvent.ACTION_DOWN &&
+                      e.repeatCount == 0
+                  ) {
+                      val now = SystemClock.elapsedRealtime()
+                      if (now - last < 700) {
+                          last = 0
+                          try {
+                              ContextCompat.startForegroundService(
+                                  this, Intent(this, JarvisService::class.java).setAction("LISTEN")
+                              )
+                          } catch (_: Exception) {
+                          }
+                          return true
+                      }
+                      last = now
+                  }
+                  return false
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+                  // Sadece Jarvis'in hazırladığı bir WhatsApp mesajı beklenirken çalışır.
+                  if (SendState.until < SystemClock.elapsedRealtime()) return
+                  val pkg = event?.packageName?.toString() ?: return
+                  if (!pkg.startsWith("com.whatsapp")) return
+                  val root = rootInActiveWindow ?: return
+                  val btn = findSend(root) ?: return
+                  if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      SendState.until = 0L
+                      main.postDelayed({ performGlobalAction(GLOBAL_ACTION_HOME) }, 1200)
+                  }
+              }
+
+              private fun findSend(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+                  for (id in listOf("com.whatsapp:id/send", "com.whatsapp.w4b:id/send")) {
+                      val l = node.findAccessibilityNodeInfosByViewId(id)
+                      if (!l.isNullOrEmpty()) return l[0]
+                  }
+                  return walk(node, 0)
+              }
+
+              private fun walk(n: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+                  if (depth > 25) return null
+                  val d = n.contentDescription?.toString()?.lowercase() ?: ""
+                  if (n.isClickable && (d == "gönder" || d == "send")) return n
+                  for (i in 0 until n.childCount) {
+                      val c = n.getChild(i) ?: continue
+                      val r = walk(c, depth + 1)
+                      if (r != null) return r
+                  }
+                  return null
+              }
+
+              override fun onInterrupt() {}
+          }
+          EOF
+
+      - name: APK derle
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
